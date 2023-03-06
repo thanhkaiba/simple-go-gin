@@ -1,0 +1,38 @@
+{
+	"info": {
+		"_postman_id": "a4df0007-c707-46b8-abfe-c40eb1ae0955",
+		"name": "DecodeMailAttachment",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "decode",
+			"request": {
+				"method": "POST",
+				"header": [],
+				"body": {
+					"mode": "formdata",
+					"formdata": [
+						{
+							"key": "file",
+							"type": "file",
+							"src": "/Users/appleboy/test.zip"
+						}
+					]
+				},
+				"url": {
+					"raw": "http://localhost:8080/upload",
+					"protocol": "http",
+					"host": [
+						"localhost"
+					],
+					"port": "8080",
+					"path": [
+						"upload"
+					]
+				}
+			},
+			"response": []
+		}
+	]
+}
