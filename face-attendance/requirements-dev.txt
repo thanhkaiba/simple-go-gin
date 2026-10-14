@@ -1,5 +1,6 @@
-# Enough to run the tests; they need no models, camera or OpenCV.
+# Enough to run the tests; they need no face models or camera.
 numpy>=1.26
+opencv-python-headless>=4.9
 Flask>=3.0
 PyYAML>=6.0
 pytest>=8.0

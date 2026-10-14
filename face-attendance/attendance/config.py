@@ -91,8 +91,9 @@ class WebConfig:
 class Config:
     timezone: str = "Asia/Ho_Chi_Minh"
     data_dir: str = "data"
-    employees_file: str = "employees.csv"
+    employees_file: str = "employees.csv"  # imported once, when the database has no employees yet
     healthcheck_url: str = ""
+    retention_days: int = 90  # face photos of arrivals and unknown faces are deleted after this
     schedule: ScheduleConfig = field(default_factory=ScheduleConfig)
     camera: CameraConfig = field(default_factory=CameraConfig)
     recognition: RecognitionConfig = field(default_factory=RecognitionConfig)
@@ -110,12 +111,26 @@ class Config:
 
     def validate(self) -> None:
         start, late, end = self.schedule.clocks()
+        # Store times as "HH:MM" even if YAML read them as numbers.
+        self.schedule.window_start, self.schedule.late_after, self.schedule.window_end = (
+            t.strftime("%H:%M") for t in (start, late, end))
         if not start < late <= end:
             raise ValueError("schedule must satisfy window_start < late_after <= window_end")
         if self.recognition.backend not in DEFAULT_MODELS:
             raise ValueError(f"recognition.backend must be one of {sorted(DEFAULT_MODELS)}")
         if any(d not in range(7) for d in self.schedule.work_days):
             raise ValueError("work_days must contain numbers 0 (Monday) to 6 (Sunday)")
+        r = self.recognition
+        if not (0 < r.accept_score < 1 and 0 <= r.min_margin < 1 and 0 <= r.min_det_score <= 1):
+            raise ValueError("accept_score, min_margin and min_det_score must be between 0 and 1")
+        if r.votes_required < 1 or r.unknown_min_frames < 1 or r.min_face_px < 1:
+            raise ValueError("votes_required, unknown_min_frames and min_face_px must be at least 1")
+        if not 0 < self.camera.process_fps <= 30:
+            raise ValueError("process_fps must be between 0 and 30")
+        if self.retention_days < 1:
+            raise ValueError("retention_days must be at least 1")
+        if self.google_chat.unknown_batch_minutes < 0:
+            raise ValueError("unknown_batch_minutes must not be negative")
         self.tz  # raises on an unknown time zone
 
 

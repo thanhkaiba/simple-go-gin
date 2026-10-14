@@ -1,19 +1,22 @@
 # Camera attendance
 
-A PC in the office reads the camera stream, recognises faces **locally**, works out who arrived on time and who is late, and posts to **Google Chat**. Faces it cannot identify go to a small web page where an admin picks the right person.
+A computer in the office reads the camera stream, recognises faces **locally**, works out who arrived on time and who is late, and posts to **Google Chat**. Everything is managed from a web page: employees and their photos, holidays and leave, corrections, the live camera view and all settings.
 
 ```
-Camera (RTSP) ──► Office PC: detect faces → drop poor frames → follow each face across frames → match
+Camera (RTSP) ──► Office computer: detect faces → drop poor frames → follow each face across frames → match
                     │
                     ├─ confident ──────► record arrival time
                     └─ not confident ──► "unidentified" queue → admin picks the right person
                     │
-                    └─► Google Chat: 10:00 not-seen list, late arrivals, unidentified faces, 11:00 summary
+                    ├─► Google Chat: not-seen list at the late time, late arrivals, unidentified faces, summary
+                    └─► Admin web page: attendance, corrections, employees, holidays & leave, live camera, settings
 ```
+
+Runs on **Windows 10/11**, **macOS** (Apple Silicon or Intel) and **Linux**.
 
 ## Attendance rules
 
-Times come from `config.yaml`; defaults shown.
+Times are set on the Settings page; defaults shown.
 
 | Situation | Result |
 |---|---|
@@ -21,22 +24,26 @@ Times come from `config.yaml`; defaults shown.
 | **Not seen by 10:00** | Late |
 | First seen **after 10:00** | Late, posted right away: "🟠 *Bob* arrived at 10:23, 23 min late." |
 | Not seen all morning | Listed as "Not seen on camera" in the summary |
+| On leave, business trip, working remotely | Never counted as late or missing |
+| Company holiday | No notifications at all |
 | Face not recognised | Sent to the admin. Once confirmed, the arrival time is the time of the photo |
 
 **Google Chat messages.** All of a day's messages go in one thread.
 
-- **10:00:** everyone not seen yet.
+- **10:00:** everyone not seen yet, plus who is on leave and who has no reference photos.
 - **Late arrival:** as it happens.
 - **Unidentified faces:** batched every 5 minutes at most, with a link to review them.
-- **Correction:** sent when the admin confirms that someone on the 10:00 list actually arrived before 10:00.
+- **Correction:** a short update whenever the admin fixes something after the 10:00 list went out.
 - **11:00:** daily summary.
-- **Camera or PC outage:** if either stops during the window, the messages say for which period, so nobody is marked late unfairly.
+- **Warnings:**
+  - when the camera or computer was down during the camera hours, or the camera picture was black, blank or frozen;
+  - when two employees' reference photos look alike.
 
-**⚠️ The camera only runs during the window** (default 09:00–11:00). Someone who arrives **before 09:00** and does not pass the camera again after 09:00 is counted as late. If people come in early, set `window_start` earlier, e.g. `"08:00"`.
+**⚠️ The camera only runs during the camera hours** (default 09:00–11:00). Someone who arrives **before 09:00** and does not pass the camera again after 09:00 is counted as late. If people come in early, set the start time earlier, e.g. 08:00.
 
 ## Model choice
 
-The detection and recognition models were picked on their merits, not on what earlier prototypes used. Two backends are supported, and `evaluate` compares them on your own photos:
+The detection and recognition models were picked on their merits. Two backends are supported, and `evaluate` compares them on your own photos:
 
 | | `insightface` (default) | `opencv` |
 |---|---|---|
@@ -46,124 +53,123 @@ The detection and recognition models were picked on their merits, not on what ea
 | Speed (CPU) | ~200 ms per frame at 640 px | ~20 ms per frame |
 | Licence | **Non-commercial research only.** Commercial use needs a licence from InsightFace (contact@insightface.ai) | MIT / Apache 2.0, free for commercial use |
 
+> Company attendance is a commercial use. Either get an InsightFace licence or set `backend: opencv` in `config.yaml`. Run `evaluate` with both first to see the difference on your photos.
+
 Other design decisions:
+- **No YOLO.** A generic YOLO detector gives no facial landmarks (needed for alignment), and Ultralytics YOLOv8 is AGPL-3.0.
+- **No `insightface` package.** The ONNX models run directly on onnxruntime, so nothing needs compiling.
+- **No cloud.** Recognition stays on the office computer and images never leave it.
 
-- **No YOLO.**
-  - A generic YOLO detector gives no facial landmarks, and landmark alignment matters more for accuracy than the detector itself.
-  - Ultralytics YOLOv8 is also AGPL-3.0 licensed.
-- **No `insightface` Python package.**
-  - The two ONNX models run directly on onnxruntime, so installation needs no C++ compiler on Windows.
-  - Only the model weights carry the licence restriction; the package code is not needed.
-- **Recognition stays local.** No images leave the office. A cloud API (e.g. AWS Rekognition) could later be added for the hard cases only.
+## 1. Install
 
-> Company attendance is a commercial use. Either get an InsightFace licence or switch to `backend: opencv`. Run `evaluate` with both backends first to see what the difference is on your photos.
+You need **Python 3.10 or newer**.
 
-## 1. Set up the PC
+### Windows
 
-Use a dedicated PC that stays on, running Windows 10/11 or Ubuntu. Not someone's laptop.
-
-- **Python 3.10 or newer.**
-- **Disable sleep:** Power → Sleep → Never.
-- **BIOS:** enable *Restore on AC Power Loss* so the PC comes back on after a power cut.
-- **Windows Update:** set active hours so updates never restart the PC during the morning.
-- **UPS:** recommended for the PC, router and camera.
-
-```bash
-cd face-attendance
-python -m venv .venv
-.venv\Scripts\activate          # Linux: source .venv/bin/activate
-pip install -r requirements.txt
-cp config.example.yaml config.yaml          # Windows: copy
-cp employees.example.csv employees.csv
-python -m attendance download-models        # backend from config.yaml; add --backend opencv for the other
-```
-
-## 2. Configure
-
-**`employees.csv`:** two columns, `id,name`. It can be edited in Excel; save as "CSV UTF-8".
-
-**Ezviz camera:**
-
-1. In the EZVIZ app, enable **RTSP** or **LAN Live View** if your model has it.
-2. Set `camera.url` to:
+1. Install Python from [python.org](https://www.python.org/downloads/). Tick **"Add python.exe to PATH"**.
+2. Open *Command Prompt* in the `face-attendance` folder:
+   ```bat
+   python -m venv .venv
+   .venv\Scripts\activate
+   pip install -r requirements.txt
+   copy config.example.yaml config.yaml
+   python -m attendance download-models
+   python -m attendance run
    ```
-   rtsp://admin:<VERIFICATION_CODE>@<CAMERA_IP>:554/H.264
-   ```
-   The verification code is the 6 capital letters on the label under the camera.
-3. Check the stream first in VLC: Media → Open Network Stream.
-4. Give the camera a fixed IP in the router (DHCP reservation).
+3. When Windows Firewall asks, allow Python on **private networks**, so the admin page can be opened from other computers.
 
-## 3. Enroll employees' faces
+### macOS
 
-```
-faces/
-  NV001/  photo1.jpg photo2.jpg ...
-  NV002/  ...
-```
-
-- **5–10 photos per person:** looking straight, slightly left and right, with and without glasses, and one or two with a mask if possible.
-- **Frames from the door camera itself are best**, because they have the same angle and lighting. Existing labelled data can be used.
-
-```bash
-python -m attendance enroll --faces faces
-```
-
-Re-running replaces the enrolled photos. Faces learned from admin confirmations are kept. Faces are stored per model, so after switching backend, run `enroll` again.
-
-## 4. Compare backends and choose thresholds (important)
-
-Use labelled photos to set `accept_score` and `min_margin` so that **nobody is ever identified as someone else**.
-
-```bash
-# Separate test photos: eval/<employee id>/*.jpg, plus eval/_unknown/*.jpg for non-employees
-python -m attendance evaluate --gallery faces --test eval --backends insightface opencv
-
-# Only one set of photos: each photo is tested against all the others
-python -m attendance evaluate --gallery faces --backends insightface opencv
-```
-
-For each backend the command prints a table and a line like `Recommended: accept_score: ...  min_margin: ...`. Copy the values for your chosen backend into `config.yaml`, and add about 0.02 to `accept_score` as a safety margin.
-
-Include hard photos in the test set: dark, blurred, side views, masks. They are what separates the backends.
-
-When running live, a person is only identified once **at least 3 good frames agree** (`votes_required`). The per-visit accuracy is therefore higher than the per-photo figures.
-
-## 5. Google Chat
-
-1. In the admin team's space: space name → **Apps & integrations** → **Webhooks** → **Add webhook**.
-2. Put the URL in `google_chat.webhook_url`.
-3. Test it:
+1. Install Python from [python.org](https://www.python.org/downloads/) or with Homebrew (`brew install python@3.12`).
+2. In *Terminal*, in the `face-attendance` folder:
    ```bash
-   python -m attendance test-chat
+   python3 -m venv .venv
+   source .venv/bin/activate
+   pip install -r requirements.txt
+   cp config.example.yaml config.yaml
+   python -m attendance download-models
+   python -m attendance run
    ```
+3. When macOS asks whether Python may accept incoming network connections, click **Allow**.
 
-Messages that cannot be sent (no internet) are kept on the PC and retried for up to 24 hours.
+### Linux
 
-## 6. Run
+Same as macOS. On a machine with an NVIDIA GPU, install `onnxruntime-gpu` instead of `onnxruntime` and set `use_gpu: true`.
+
+Then open **http://localhost:8000**, or `http://<computer IP>:8000` from another computer.
+
+## 2. First-time setup (on the admin page)
+
+1. **Settings:**
+   - **Camera address:** for Ezviz, `rtsp://admin:<VERIFICATION_CODE>@<CAMERA_IP>:554/H.264`. The code is the 6 capital letters on the camera label; first enable RTSP / LAN Live View in the EZVIZ app if your model has it. Give the camera a fixed IP in the router.
+   - **Working hours** and **work days**.
+   - **Google Chat webhook:** in the space, open the space name → *Apps & integrations* → *Webhooks* → *Add webhook*. Then click **Send a test message**.
+   - **Address of this page:** used for links in chat messages.
+   - **A password.**
+2. **Employees:**
+   - Add people one by one, or import a CSV file with columns `id,name`.
+   - Open each person and **upload 5–10 photos**: looking straight, slightly left and right, with and without glasses, and one with a mask if they often wear one. Frames from the door camera itself work best.
+   - The page warns about blurred photos, photos without a face, and photos that look like another employee.
+3. **Holidays & leave:** enter public holidays, make-up work days and known leave.
+4. **Live camera:** click *Start preview* to see what the camera sees, with each face labelled. Use it to position the camera. Green boxes mean a face is recognised; orange boxes show why a face cannot be used (too small, blurred, turned away).
+
+## 3. Daily use
+
+- **Attendance:** who is on time, late, not seen or on leave, with photos; pick a date to see past days. Every row can be corrected:
+  - **Change time / Add arrival:** enter an arrival by hand, e.g. someone who missed the camera.
+  - **Wrong person? It was… → Move:** the camera recorded the wrong person; the time and photo move to the right one.
+  - **Delete:** remove a wrong arrival.
+- **Unidentified:** faces the system was not sure about. Pick the right person and the arrival is recorded at the photo time; the face is also added to their reference photos, so they are recognised next time. *Ignore* is for visitors.
+- **Change log:** every change made on the page (corrections, confirmations, photos, employees, calendar, settings), with who made it and when.
+
+## 4. Tune recognition with your photos (recommended)
+
+With labelled photos (e.g. from earlier tests), find the threshold at which nobody is identified as someone else:
 
 ```bash
-python -m attendance run
+# Folders: faces/<employee id>/*.jpg; optionally eval/<employee id>/*.jpg and eval/_unknown/*.jpg (non-employees)
+python -m attendance evaluate --gallery faces --test eval --backends insightface opencv
 ```
 
-**Admin page:** open `http://<PC IP>:8000`, and set `web.password` in the config.
+Enter the recommended values in **Settings → Recognition**, adding about 0.02 to the match threshold as a safety margin. Include hard photos (dark, blurred, side views, masks); they are what separates the backends.
 
-- **Today:** who was on time, late or not seen, with photos. Any past day can be opened.
-- **Unidentified faces:** pick the right person and click *Confirm*. Their arrival is recorded at the photo time, and the face is learned so they are recognised next time. *Ignore* is for visitors.
-- **Remote access:** the page is only reachable inside the office network by default. For remote access install [Tailscale](https://tailscale.com) on this PC and the admin's device. Do not open a port to the internet.
+`python -m attendance enroll --faces faces` imports the same folders as reference photos, as an alternative to uploading on the web page.
 
-**Other commands:**
-- `python -m attendance report --day 2026-10-14`: print a day's summary.
+## 5. Keep it running
 
-### Start automatically
+**Computer settings.**
+- **Windows:** Power → Sleep → *Never*. Set Windows Update *active hours* to cover the morning. In the BIOS, enable *Restore on AC Power Loss*.
+- **macOS:**
+  - System Settings → *Energy* (or *Battery → Options*): enable *Prevent automatic sleeping* and *Start up automatically after a power failure*.
+  - Turn off automatic macOS updates during the morning.
+- **All computers:** a UPS for the computer, router and camera is recommended.
 
-**Windows**, with [NSSM](https://nssm.cc):
+**Start automatically.**
+
+*Windows*, with [NSSM](https://nssm.cc):
 ```bat
 nssm install Attendance "C:\attendance\face-attendance\.venv\Scripts\python.exe" "-m attendance run"
 nssm set Attendance AppDirectory "C:\attendance\face-attendance"
 nssm start Attendance
 ```
 
-**Linux**, `/etc/systemd/system/attendance.service`:
+*macOS*: save as `~/Library/LaunchAgents/com.company.attendance.plist`, adjusting the paths, then run `launchctl load ~/Library/LaunchAgents/com.company.attendance.plist`:
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>com.company.attendance</string>
+  <key>WorkingDirectory</key><string>/Users/admin/face-attendance</string>
+  <key>ProgramArguments</key><array>
+    <string>/Users/admin/face-attendance/.venv/bin/python</string><string>-m</string><string>attendance</string><string>run</string>
+  </array>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+</dict></plist>
+```
+Also enable automatic login for that user (System Settings → Users & Groups), so the agent starts after a power cut.
+
+*Linux*, `/etc/systemd/system/attendance.service`:
 ```ini
 [Unit]
 Description=Camera attendance
@@ -182,43 +188,51 @@ WantedBy=multi-user.target
 sudo systemctl enable --now attendance
 ```
 
-### Alert when the PC stops
+**Alert when the computer stops.** Create a free check on [Healthchecks.io](https://healthchecks.io) with a 1-minute period and 5-minute grace, and enter its ping URL in Settings. If the computer or the program stops, Healthchecks.io sends an email.
 
-Create a free check on [Healthchecks.io](https://healthchecks.io) with a 1-minute period and 5-minute grace, and put its ping URL in `healthcheck_url`. If the PC or the program stops, Healthchecks.io sends an email.
+**Remote access.** The admin page only works inside the office network by default. For remote access, install [Tailscale](https://tailscale.com) on this computer and the admin's devices. Never open a port to the internet.
 
-Files:
-- logs: `data/attendance.log`
-- face photos: `data/crops/`
-- database: `data/attendance.db`
+## Privacy
+
+Face photos are personal data. Inform employees and get their consent.
+
+- **Camera snapshots** (arrivals and unidentified faces) are deleted automatically after the number of days set in Settings (default 90). Arrival times are kept.
+- **Reference photos** are kept until deleted on the employee's page.
+- **Deleting an employee** removes all of their face data.
+
+Everything is stored in the `data/` folder:
+- `attendance.db`: database
+- `faces/`: reference photos
+- `crops/`: camera snapshots
+- `attendance.log`: log
 
 ## Getting the best accuracy
 
 **Camera placement** matters more than any setting.
 - Mount it where everyone **must walk towards it**.
 - Face height or slightly above, tilted down less than 15°.
-- Faces should be **at least 80 px wide** in the image.
+- Faces at least 80 px wide (check on the Live camera page).
 
-**Light** should come from in front of people. **Never** point the camera at a glass door or window (backlight). Dark frames are contrast-enhanced automatically (`enhance_low_light`), but a lamp works better.
+**Light** should come from in front of people. **Never** point the camera at a glass door or window (backlight).
 
 **Masks and sunglasses:**
-- Enroll photos with masks.
-- Anything still uncertain goes to the admin queue rather than being guessed.
-- The most effective fix is asking people to lower their mask for a second at the camera.
+- Upload photos with masks.
+- Anything still uncertain goes to the admin rather than being guessed.
 
 **Wi-Fi cameras on a desk** drop frames. A wired PoE camera is more reliable.
 
-**Slow PC:**
-- Lower `process_fps` to 3, or `det_size` to 480 (distant faces are then harder to detect).
-- Or use `backend: opencv`, which is about 10× faster.
+**Slow computer:** lower *Frames per second* in Settings, or use `backend: opencv` (about 10× faster).
 
 ## How wrong identifications are avoided
 
 1. **5-point alignment:** every face is aligned before its embedding is computed.
-2. **Quality gate:** frames where the face is small, blurred, turned away or weakly detected **do not vote**.
-3. **Several references per person:** a person's score is the mean of their two closest reference photos, so one odd photo does not dominate.
-4. **Clear margin:** the best match must beat the runner-up by `min_margin`.
-5. **Several frames must agree:** `votes_required` frames must pick the same person, with at least twice the votes of everyone else combined.
-6. **No guessing:** everything else goes to the admin. Each confirmation adds a real camera image to that person's references.
+2. **Quality gate:** small, blurred, turned-away or weakly detected faces **do not vote**.
+3. **Several references per person:** a person's score is the mean of their two closest reference photos.
+4. **Clear margin:** the best match must beat the runner-up by a margin.
+5. **Several frames must agree:** at least twice as many votes as everyone else combined. A track that ends one vote short is still accepted when all its votes agree and the match is very strong (fast walkers).
+6. **No guessing:** everything else goes to the admin, and each confirmation teaches the system that face.
+7. **Look-alike check:** employees whose photos match each other are flagged before they cause mix-ups.
+8. **Camera health:** a black, blank or frozen picture counts as an outage instead of "nobody came".
 
 ## Development
 
@@ -227,4 +241,4 @@ pip install -r requirements-dev.txt
 python -m pytest
 ```
 
-The tests need no models, camera or OpenCV.
+The tests need no face models or camera.

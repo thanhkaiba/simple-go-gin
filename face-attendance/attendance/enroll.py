@@ -1,15 +1,12 @@
-"""Enroll reference photos: faces/<employee_id>/*.jpg -> embeddings in the database."""
+"""Enroll reference photos from folders: faces/<employee_id>/*.jpg (the web page can do the same)."""
 from __future__ import annotations
 
-import datetime as dt
 from pathlib import Path
 
 import cv2
 import numpy as np
 
 from .config import Config
-from .recognizer import FaceRecognizer
-from .store import Store
 
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
 MIN_PHOTOS = 5
@@ -26,33 +23,38 @@ def images_in(folder: Path) -> list[Path]:
 
 
 def enroll(cfg: Config, faces_dir: Path) -> None:
-    store = Store(cfg.path(cfg.data_dir) / "attendance.db")
-    store.sync_employees(cfg.path(cfg.employees_file))
-    employees = store.employees()
-    recognizer = FaceRecognizer(cfg.recognition, cfg.base_dir)
-    now = dt.datetime.now(cfg.tz)
-    print(f"Enrolling with model {recognizer.model_id}")
+    from .pipeline import App
 
+    app = App(cfg)
+    employees = app.store.employees()
+    print(f"Enrolling with model {cfg.recognition.model_id()}")
     seen = set()
     for person_dir in sorted(p for p in faces_dir.iterdir() if p.is_dir()):
         emp = person_dir.name
         if emp not in employees:
-            print(f"! {emp}: not in {cfg.employees_file}, skipped")
+            print(f"! {emp}: not an active employee (add them on the Employees page first), skipped")
             continue
         seen.add(emp)
-        # Re-running replaces the enrolled photos; faces learned from admin confirmations are kept.
-        store.delete_embeddings(recognizer.model_id, emp, "enroll:")
+        # Re-running replaces photos enrolled from folders; uploads and admin-confirmed faces are kept.
+        for employee_id, image, source in app.store.reference_images():
+            if employee_id == emp and source == "enroll":
+                app.library.delete_photo(image)
         added = 0
         for path in images_in(person_dir):
             image = read_image(path)
-            face = recognizer.largest_face(image) if image is not None else None
-            if face is None or face.det_score < 0.5 or face.size < 40:
-                print(f"  - {path.name}: no clear face found, skipped")
+            if image is None:
+                print(f"  - {path.name}: not a readable image, skipped")
                 continue
-            store.add_embedding(recognizer.model_id, emp, face.embedding, f"enroll:{path.name}", now)
+            result = app.library.add_photo(emp, image, source="enroll")
+            if not result.ok:
+                print(f"  - {path.name}: {result.message}")
+                continue
             added += 1
+            for w in result.warnings:
+                print(f"  ! {path.name}: {w}")
         warn = f"  (warning: use at least {MIN_PHOTOS} photos)" if added < MIN_PHOTOS else ""
         print(f"{emp} ({employees[emp]}): {added} photos{warn}")
 
     for emp in sorted(set(employees) - seen):
-        print(f"! {emp} ({employees[emp]}): no photo folder, this person cannot be recognised")
+        if emp not in app.gallery.counts():
+            print(f"! {emp} ({employees[emp]}): no photos, this person cannot be recognised")

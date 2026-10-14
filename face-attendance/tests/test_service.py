@@ -1,45 +1,11 @@
 import datetime as dt
-from zoneinfo import ZoneInfo
 
 import numpy as np
 import pytest
 
-from attendance.config import Config
 from attendance.gallery import Gallery
-from attendance.notifier import GoogleChat
 from attendance.service import AttendanceService
-from attendance.store import Store
-
-TZ = ZoneInfo("Asia/Ho_Chi_Minh")
-DAY = dt.date(2026, 10, 14)  # Wednesday
-
-
-def at(hh: int, mm: int, ss: int = 0, day: dt.date = DAY) -> dt.datetime:
-    return dt.datetime(day.year, day.month, day.day, hh, mm, ss, tzinfo=TZ)
-
-
-class Clock:
-    def __init__(self, t):
-        self.t = t
-
-    def __call__(self):
-        return self.t
-
-
-@pytest.fixture
-def env(tmp_path):
-    csv = tmp_path / "employees.csv"
-    csv.write_text("id,name\nA,Alice\nB,Bob\nC,Carol\n", encoding="utf-8")
-    cfg = Config(employees_file=str(csv))
-    cfg.web.public_url = "http://pc:8000"
-    cfg.google_chat.webhook_url = "https://chat.googleapis.com/v1/spaces/X/messages?key=k&token=t"
-    store = Store(tmp_path / "db.sqlite")
-    store.sync_employees(csv)
-    sent = []
-    chat = GoogleChat(cfg.google_chat.webhook_url, store, post=lambda url, payload: sent.append(payload["text"]))
-    clock = Clock(at(8, 0))
-    service = AttendanceService(cfg, store, chat, Gallery(), now=clock)
-    return service, store, clock, sent
+from conftest import DAY, at
 
 
 def run_until(service, clock, end, step=dt.timedelta(seconds=30), camera_ok=True):
@@ -110,8 +76,8 @@ def test_unknown_faces_are_batched_and_admin_can_resolve(env):
     assert sent[-1] == "✅ Update: *Carol* arrived at 09:12 (confirmed by admin), not late."
     rep = service.report(DAY)
     assert "C" in [a.employee_id for a in rep.on_time]
-    assert service.gallery.counts() == {"C": 1}
-    assert store.embeddings(service.model_id)[0][0] == "C"
+    assert service.gallery.counts()["C"] == 2  # the confirmed face was learned
+    assert [r.source for r in store.references(service.model_id, "C")] == ["upload", "admin"]
     assert store.embeddings("some-other-model") == []
     with pytest.raises(ValueError):
         service.resolve_unknown(uid, "C")
@@ -121,7 +87,7 @@ def test_admin_correction_moves_late_arrival_earlier(env):
     service, store, clock, sent = env
     run_until(service, clock, at(10, 30))
     service.on_identified("B", at(10, 20), 0.7, None)
-    uid = service.on_unknown(at(9, 40), "b.jpg", None, "B", 0.4)
+    uid = service.on_unknown(at(9, 40), "b.jpg", None, "B", 0.2)  # too unlike B to be suppressed
     service.resolve_unknown(uid, "B")
     assert store.checkins(DAY)["B"].first_seen == at(9, 40)
     assert "B" in [a.employee_id for a in service.report(DAY).on_time]

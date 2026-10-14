@@ -18,6 +18,9 @@ LINK_IOU = 0.2  # same position as the previous frame
 LINK_SIM = 0.5  # or clearly the same face
 LINK_MIN_SIM = 0.3  # never link faces that look like different people, even at the same position
 SPLIT_WINDOW = dt.timedelta(seconds=5)
+# A track that ends one vote short is still accepted when its votes are unanimous and this much
+# above accept_score: someone walking fast past a slow PC may only give two good frames.
+STRONG_BONUS = 0.1
 
 
 @dataclass
@@ -63,13 +66,10 @@ def iou(a, b) -> float:
 
 
 class FaceTracker:
-    def __init__(self, accept_score: float, min_margin: float, votes_required: int,
-                 timeout_s: float, unknown_min_frames: int):
-        self.accept_score = accept_score
-        self.min_margin = min_margin
-        self.votes_required = votes_required
-        self.timeout = dt.timedelta(seconds=timeout_s)
-        self.unknown_min_frames = unknown_min_frames
+    def __init__(self, params):
+        """`params` has accept_score, min_margin, votes_required, track_timeout_s and unknown_min_frames
+        (a RecognitionConfig); it is read on every frame so settings changes apply immediately."""
+        self.p = params
         self._tracks: list[_Track] = []
         self._ended: list[_Track] = []  # undecided tracks waiting out SPLIT_WINDOW before becoming "unknown"
         self._ids = itertools.count(1)
@@ -118,31 +118,44 @@ class FaceTracker:
 
         person, top = obs.candidates[0]
         runner_up = obs.candidates[1][1] if len(obs.candidates) > 1 else -1.0
-        if top >= self.accept_score and top - runner_up >= self.min_margin:
+        if top >= self.p.accept_score and top - runner_up >= self.p.min_margin:
             t.votes[person] += 1
 
         if t.decided or not t.votes:
             return None
         leader, n = t.votes.most_common(1)[0]
         others = sum(t.votes.values()) - n
-        if n >= self.votes_required and n >= 2 * others:
-            t.decided = leader
-            self._recent[leader] = ts
-            return Decision("identified", t.first_ts, leader, t.best_score[leader], t.best.crop, t.best.embedding)
+        if n >= self.p.votes_required and n >= 2 * others:
+            return self._decide(t, leader, ts)
         return None
 
+    def _decide(self, t: _Track, person: str, ts: dt.datetime) -> Decision:
+        t.decided = person
+        self._recent[person] = ts
+        return Decision("identified", t.first_ts, person, t.best_score[person], t.best.crop, t.best.embedding)
+
+    def _strong_exit(self, t: _Track) -> str | None:
+        if len(t.votes) != 1:
+            return None
+        person, n = next(iter(t.votes.items()))
+        strong = t.best_score.get(person, 0) >= self.p.accept_score + STRONG_BONUS
+        return person if strong and n >= max(1, self.p.votes_required - 1) else None
+
     def _expire(self, now: dt.datetime, force: bool = False) -> list[Decision]:
-        alive = []
+        timeout = dt.timedelta(seconds=self.p.track_timeout_s)
+        alive, decisions = [], []
         for t in self._tracks:
-            if not force and now - t.last_ts <= self.timeout:
+            if not force and now - t.last_ts <= timeout:
                 alive.append(t)
             elif t.decided:
                 self._recent[t.decided] = t.last_ts
-            elif t.frames >= self.unknown_min_frames:
+            elif (person := self._strong_exit(t)) is not None:
+                decisions.append(self._decide(t, person, t.last_ts))
+            elif t.frames >= self.p.unknown_min_frames:
                 self._ended.append(t)
         self._tracks = alive
 
-        decisions, waiting = [], []
+        waiting = []
         for t in self._ended:
             if not force and now - t.last_ts < SPLIT_WINDOW:
                 waiting.append(t)

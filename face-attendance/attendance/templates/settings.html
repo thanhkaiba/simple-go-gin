@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% macro field(section, name, label, help='', type='text', step='') %}
+  {% set key = section ~ '.' ~ name if section else name %}
+  <label>{{ label }}
+    <input name="{{ key }}" type="{{ type }}" value="{{ s[section][name] }}" {% if step %}step="{{ step }}"{% endif %}>
+    {% if help %}<small class="muted">{{ help }}</small>{% endif %}
+  </label>
+{% endmacro %}
+{% macro check(section, name, label) %}
+  <label style="flex-direction:row; align-items:center; gap:6px">
+    <input type="checkbox" name="{{ section }}.{{ name }}" {{ 'checked' if s[section][name] }}> {{ label }}</label>
+{% endmacro %}
+{% block body %}
+<h1>Settings</h1>
+<p class="muted">Changes apply immediately, without restarting.</p>
+<form method="post" action="{{ url_for('save_settings') }}">
+  <div class="card">
+    <h2 style="margin-top:0">Working hours</h2>
+    <div class="row">
+      {{ field('schedule', 'window_start', 'Camera starts', type='time') }}
+      {{ field('schedule', 'late_after', 'Late from', 'First seen at or after this time = late', type='time') }}
+      {{ field('schedule', 'window_end', 'Camera stops / summary', type='time') }}
+    </div>
+    <p>Work days:
+      {% for d in range(7) %}<label style="margin-right:10px"><input type="checkbox" name="schedule.work_days" value="{{ d }}" {{ 'checked' if d in s.schedule.work_days }}> {{ WEEKDAYS[d] }}</label>{% endfor %}
+    </p>
+    <p class="muted">Holidays and make-up days are set on the <a href="{{ url_for('calendar') }}">Holidays &amp; leave</a> page.</p>
+  </div>
+
+  <div class="card">
+    <h2 style="margin-top:0">Camera</h2>
+    <div class="row">
+      <label style="flex:1 1 420px">Camera address (RTSP)
+        <input name="camera.url" value="{{ s.camera.url }}" placeholder="rtsp://admin:CODE@192.168.1.64:554/H.264">
+        <small class="muted">Ezviz: rtsp://admin:&lt;6-letter code on the camera label&gt;@&lt;camera IP&gt;:554/H.264</small></label>
+      {{ field('camera', 'process_fps', 'Frames per second', 'Lower if the PC is slow', type='number', step='0.5') }}
+    </div>
+    <div class="row">{{ check('camera', 'enhance_low_light', 'Brighten dark frames automatically') }}</div>
+  </div>
+
+  <div class="card">
+    <h2 style="margin-top:0">Recognition</h2>
+    <p class="muted">Model: {{ cfg.recognition.backend }} ({{ cfg.recognition.model_id() }}). Changing the model is done in
+      config.yaml and needs a restart. Tune the two main values with <code>python -m attendance evaluate</code>.</p>
+    <div class="row">
+      {{ field('recognition', 'accept_score', 'Match threshold', 'Higher = stricter (fewer wrong matches, more unidentified)', type='number', step='0.01') }}
+      {{ field('recognition', 'min_margin', 'Margin over 2nd best', type='number', step='0.01') }}
+      {{ field('recognition', 'votes_required', 'Frames that must agree', type='number') }}
+      {{ field('recognition', 'unknown_min_frames', 'Frames before reporting unidentified', type='number') }}
+    </div>
+    <div class="row">
+      {{ field('recognition', 'min_face_px', 'Min face size (px)', type='number') }}
+      {{ field('recognition', 'min_det_score', 'Min detection score', type='number', step='0.01') }}
+      {{ field('recognition', 'min_sharpness', 'Min sharpness', type='number', step='1') }}
+      {{ field('recognition', 'max_yaw', 'Max head turn (°)', type='number', step='1') }}
+      {{ field('recognition', 'max_pitch', 'Max head tilt (°)', type='number', step='1') }}
+    </div>
+  </div>
+
+  <div class="card">
+    <h2 style="margin-top:0">Google Chat</h2>
+    <div class="row">
+      <label style="flex:1 1 420px">Webhook URL<input name="google_chat.webhook_url" value="{{ s.google_chat.webhook_url }}">
+        <small class="muted">Space → Apps &amp; integrations → Webhooks → Add webhook</small></label>
+      {{ field('google_chat', 'unknown_batch_minutes', 'Group unidentified-face notices (min)', type='number') }}
+    </div>
+    <div class="row">{{ check('google_chat', 'notify_late_arrivals', 'Post each late arrival as it happens') }}</div>
+  </div>
+
+  <div class="card">
+    <h2 style="margin-top:0">Admin page, privacy and monitoring</h2>
+    <div class="row">
+      <label style="flex:1 1 300px">Address of this page (used in chat links)<input name="web.public_url" value="{{ s.web.public_url }}"></label>
+      <label>New password<input name="web.password" type="password" autocomplete="new-password" placeholder="leave empty to keep">
+        <small class="muted">User name: {{ cfg.web.username }}</small></label>
+    </div>
+    <div class="row">
+      {{ field('', 'retention_days', 'Delete camera photos after (days)', 'Reference photos are kept', type='number') }}
+      <label style="flex:1 1 300px">Healthchecks.io ping URL<input name="healthcheck_url" value="{{ s['']['healthcheck_url'] }}"></label>
+    </div>
+  </div>
+  <button class="primary">Save settings</button>
+</form>
+<form method="post" action="{{ url_for('test_chat') }}" style="margin-top:12px"><button>Send a test message to Google Chat</button></form>
+{% endblock %}

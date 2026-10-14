@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block body %}
+<h1>Holidays &amp; leave</h1>
+
+<h2>Company calendar</h2>
+<p class="muted">Holidays: nobody is expected and no notifications are sent. Extra work days: a normally free day
+  (e.g. a Saturday make-up day) that counts as a work day.</p>
+<div class="card">
+  <form method="post" action="{{ url_for('add_days') }}" class="row">
+    <label>From<input type="date" name="start" required></label>
+    <label>To (optional)<input type="date" name="end"></label>
+    <label>Type<select name="kind"><option value="holiday">Holiday</option><option value="workday">Extra work day</option></select></label>
+    <label>Note<input name="note" placeholder="e.g. Lunar New Year"></label>
+    <button class="primary">Add</button>
+  </form>
+</div>
+<table>
+  <tr><th>Date</th><th>Type</th><th>Note</th><th></th></tr>
+  {% for day, kind, note in days %}
+  <tr class="{{ 'muted' if day < today }}"><td>{{ day }} ({{ WEEKDAYS[day.weekday()] }})</td>
+    <td>{{ 'Holiday' if kind == 'holiday' else 'Extra work day' }}</td><td>{{ note }}</td>
+    <td><form class="inline" method="post" action="{{ url_for('delete_day', day=day.isoformat()) }}"><button class="danger">Remove</button></form></td></tr>
+  {% else %}<tr><td colspan="4" class="muted">Nothing planned.</td></tr>{% endfor %}
+</table>
+
+<h2>Employee leave</h2>
+<p class="muted">People on leave, business trips or working remotely are not counted as late or missing.</p>
+<div class="card">
+  <form method="post" action="{{ url_for('add_leave') }}" class="row">
+    <label>Employee<select name="employee_id" required>{% for id, name in employees.items() %}<option value="{{ id }}">{{ name }}</option>{% endfor %}</select></label>
+    <label>From<input type="date" name="start" required></label>
+    <label>To (optional)<input type="date" name="end"></label>
+    <label>Type<select name="kind">{% for k, label in LEAVE_KINDS.items() %}<option value="{{ k }}">{{ label }}</option>{% endfor %}</select></label>
+    <label>Note<input name="note"></label>
+    <button class="primary">Add</button>
+  </form>
+</div>
+<table>
+  <tr><th>Employee</th><th>Dates</th><th>Type</th><th>Note</th><th></th></tr>
+  {% for l in leaves %}
+  <tr><td>{{ names.get(l.employee_id, l.employee_id) }}</td><td>{{ l.start }}{% if l.end != l.start %} – {{ l.end }}{% endif %}</td>
+    <td>{{ LEAVE_KINDS.get(l.kind, l.kind) }}</td><td class="muted">{{ l.note }}</td>
+    <td><form class="inline" method="post" action="{{ url_for('delete_leave', leave_id=l.id) }}"><button class="danger">Remove</button></form></td></tr>
+  {% else %}<tr><td colspan="5" class="muted">No current or upcoming leave.</td></tr>{% endfor %}
+</table>
+{% endblock %}

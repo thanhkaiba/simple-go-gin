@@ -28,10 +28,16 @@ def _http_post(url: str, payload: dict) -> None:
 
 
 class GoogleChat:
-    def __init__(self, webhook_url: str, store: Store, post: Callable[[str, dict], None] = _http_post):
-        self.webhook_url = webhook_url.strip()
+    def __init__(self, webhook_url: str | Callable[[], str], store: Store,
+                 post: Callable[[str, dict], None] = _http_post):
+        """`webhook_url` may be a function so a URL changed in the settings is used right away."""
+        self._url = webhook_url if callable(webhook_url) else (lambda: webhook_url)
         self.store = store
         self._post = post
+
+    @property
+    def webhook_url(self) -> str:
+        return (self._url() or "").strip()
 
     def send(self, text: str, thread_key: str | None, now: dt.datetime) -> None:
         log.info("Google Chat: %s", text.replace("\n", " | "))

@@ -1,8 +1,13 @@
 # Copy to config.yaml and edit. Always quote times ("09:00"), otherwise YAML may misread them.
 timezone: Asia/Ho_Chi_Minh
 data_dir: data                 # database, face crops, logs
-employees_file: employees.csv  # columns: id,name
+employees_file: employees.csv  # columns: id,name; imported once when there are no employees yet
 healthcheck_url: ""            # e.g. https://hc-ping.com/<uuid>; pinged every minute so you get an alert if this PC stops
+retention_days: 90             # camera photos of arrivals and unknown faces are deleted after this many days
+
+# Most settings below can also be changed on the admin page (Settings); values saved there
+# take precedence over this file. The recognition backend, web host/port and data_dir can
+# only be changed here and need a restart.
 
 schedule:
   window_start: "09:00"   # camera starts. People arriving earlier are only counted if they pass the camera again after this time.

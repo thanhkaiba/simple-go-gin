@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block body %}
+<h1>Live camera</h1>
+<div class="card">
+  <div id="problem" class="flash error" hidden></div>
+  <p>Camera: <strong id="camera">…</strong> · <span id="fps"></span> frames analysed per second</p>
+  <p>Faces in view: <span id="faces" class="muted">–</span></p>
+  <p>Last identified: <span id="last" class="muted">–</span></p>
+  <p class="muted">Camera hours {{ cfg.schedule.window_start }}–{{ cfg.schedule.window_end }}.
+    Green = recognised, orange = face not good enough to use (reason shown), red = no matching employee.</p>
+  <form method="post" action="{{ url_for('preview') }}" id="preview-form">
+    <span id="preview-hint" class="muted">Outside camera hours the camera is off. Turn it on for 15 minutes to check its position: </span>
+    <button name="action" value="start" class="primary" id="start">Start preview</button>
+    <button name="action" value="stop" id="stop">Stop preview</button>
+  </form>
+</div>
+<img id="frame" alt="" style="max-width:100%; border-radius:8px; display:none">
+<p id="no-frame" class="muted">No picture yet.</p>
+<script>
+  const frame = document.getElementById('frame');
+  async function refresh() {
+    try {
+      const s = await (await fetch('{{ url_for("live_json") }}', {cache: 'no-store'})).json();
+      document.getElementById('camera').textContent = s.camera;
+      document.getElementById('fps').textContent = s.fps;
+      document.getElementById('faces').textContent = s.faces.length ? s.faces.join(' · ') : '–';
+      document.getElementById('last').textContent = s.last_identified || '–';
+      const p = document.getElementById('problem'); p.hidden = !s.problem; p.textContent = s.problem || '';
+      document.getElementById('start').hidden = s.in_window || s.previewing;
+      document.getElementById('stop').hidden = !s.previewing;
+      document.getElementById('preview-hint').hidden = s.in_window;
+      const fresh = s.frame_age !== null && s.frame_age < 10;
+      if (fresh) { frame.src = '{{ url_for("live_jpg") }}?t=' + Date.now(); }
+      frame.style.display = fresh ? 'block' : 'none';
+      document.getElementById('no-frame').hidden = fresh;
+    } catch (e) { document.getElementById('camera').textContent = 'admin page cannot reach the program'; }
+  }
+  refresh(); setInterval(refresh, 1000);
+</script>
+{% endblock %}

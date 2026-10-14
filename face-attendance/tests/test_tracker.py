@@ -2,6 +2,7 @@ import datetime as dt
 
 import numpy as np
 
+from attendance.config import RecognitionConfig
 from attendance.gallery import Gallery
 from attendance.tracker import FaceTracker, Observation
 
@@ -26,9 +27,11 @@ def obs(emb, x=100.0, ok=True, quality=0.5):
 
 
 def tracker(**kw):
-    args = dict(accept_score=0.45, min_margin=0.08, votes_required=3, timeout_s=1.5, unknown_min_frames=3)
-    args.update(kw)
-    return FaceTracker(**args)
+    params = RecognitionConfig(accept_score=0.45, min_margin=0.08, votes_required=3, track_timeout_s=1.5,
+                               unknown_min_frames=3)
+    for k, v in kw.items():
+        setattr(params, k, v)
+    return FaceTracker(params)
 
 
 def frames(tr, make, n, start=T0, step=0.2):
@@ -47,9 +50,26 @@ def test_identifies_after_enough_agreeing_frames_using_first_seen_time():
     assert d.crop == "crop0.2"  # best-quality frame up to the decision
 
 
-def test_two_frames_are_not_enough():
+def test_two_ordinary_frames_are_not_enough():
     tr = tracker()
-    assert frames(tr, lambda i: [obs(noisy(A))], 2) == []
+    weak = lambda i: [Observation((100, 100, 180, 180), noisy(A), [("A", 0.50), ("B", 0.1)], True, 0.5)]
+    out = frames(tr, weak, 2)  # votes for A, but not far above accept_score
+    out += tr.update([], T0 + dt.timedelta(seconds=20))
+    assert [d.kind for d in out] == []  # too few frames to report as unknown either
+
+
+def test_two_strong_unanimous_frames_identify_when_the_track_ends():
+    tr = tracker()
+    assert frames(tr, lambda i: [obs(noisy(A, 0.3))], 2) == []
+    out = tr.update([], T0 + dt.timedelta(seconds=5))
+    assert [(d.kind, d.employee_id) for d in out] == [("identified", "A")]
+
+
+def test_settings_changes_apply_to_a_running_tracker():
+    tr = tracker()
+    tr.p.votes_required = 1
+    out = frames(tr, lambda i: [obs(noisy(A))], 1)
+    assert [d.employee_id for d in out] == ["A"]
 
 
 def test_poor_quality_frames_never_identify_and_become_unknown():

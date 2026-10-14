@@ -31,6 +31,11 @@ class Gallery:
             current = self._by_person.get(person)
             self._by_person[person] = vec if current is None else np.vstack([current, vec])
 
+    def snapshot(self) -> dict[str, np.ndarray]:
+        """person -> matrix of normalised reference embeddings."""
+        with self._lock:
+            return dict(self._by_person)
+
     def counts(self) -> dict[str, int]:
         with self._lock:
             return {p: len(m) for p, m in self._by_person.items()}

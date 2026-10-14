@@ -78,14 +78,13 @@ def test_sweep_and_recommend_pick_safest_setting_with_no_wrong_matches():
     assert (best.threshold, best.margin, best.correct) == (0.45, 0.04, 2)
 
 
-def test_sync_employees_handles_excel_bom_and_deactivates_removed(tmp_path):
-    csv = tmp_path / "e.csv"
-    csv.write_text("﻿id,name\nA,Ánh\nB,Bình\n", encoding="utf-8")
+def test_import_employees_handles_excel_bom_and_never_removes_anyone(tmp_path):
     store = Store(tmp_path / "db")
-    store.sync_employees(csv)
-    csv.write_text("id,name\nA,Ánh\n", encoding="utf-8")
-    store.sync_employees(csv)
-    assert store.employees() == {"A": "Ánh"}
+    store.import_employees("\ufeffid,name\nA,Ánh\nB,Bình\n")  # Excel BOM, accented names
+    store.import_employees("ID , Name\nA,Ánh Nguyễn\n")
+    assert store.employees() == {"A": "Ánh Nguyễn", "B": "Bình"}
+    with pytest.raises(ValueError, match="id,name"):
+        store.import_employees("code;full name\nA;X\n")
 
 
 def test_config_model_files_follow_backend(tmp_path):

@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block body %}
+<h1>Employees</h1>
+
+{% for p in look_alikes %}
+  <div class="warn">⚠️ <a href="{{ url_for('employee', employee_id=p.a) }}">{{ names.get(p.a, p.a) }}</a> and
+    <a href="{{ url_for('employee', employee_id=p.b) }}">{{ names.get(p.b, p.b) }}</a> have reference photos that look
+    alike (similarity {{ '%.2f'|format(p.score) }}). They may be confused: check that no photo is in the wrong person's
+    list, and add clearer photos of both.</div>
+{% endfor %}
+
+<div class="card">
+  <form method="post" action="{{ url_for('add_employee') }}" class="row">
+    <label>Employee id<input name="id" required placeholder="NV001"></label>
+    <label>Name<input name="name" required placeholder="Nguyen Van An"></label>
+    <button class="primary">Add employee</button>
+  </form>
+  <form method="post" action="{{ url_for('import_employees') }}" enctype="multipart/form-data" class="row" style="margin-top:10px">
+    <label><span>Or import a CSV file with columns <code>id,name</code></span><input type="file" name="file" accept=".csv,text/csv" required></label>
+    <button>Import</button>
+  </form>
+</div>
+
+<div class="table-wrap"><table>
+  <tr><th>Photo</th><th>Id</th><th>Name</th><th>Reference photos</th><th>Status</th></tr>
+  {% for p in people %}
+  <tr>
+    <td>{% if thumbs.get(p.id) %}<img class="thumb" src="{{ url_for('media', path=thumbs[p.id]) }}" alt="">{% endif %}</td>
+    <td><a href="{{ url_for('employee', employee_id=p.id) }}">{{ p.id }}</a></td>
+    <td><a href="{{ url_for('employee', employee_id=p.id) }}">{{ p.name }}</a></td>
+    <td>{% set n = counts.get(p.id, 0) %}
+      {% if n == 0 %}<span class="bad">none: cannot be recognised</span>
+      {% elif n < 5 %}<span class="late">{{ n }} (add more)</span>{% else %}{{ n }}{% endif %}</td>
+    <td>{% if not p.active %}<span class="pill muted">inactive</span>
+        {% elif on_leave.get(p.id) %}<span class="pill muted">{{ LEAVE_KINDS.get(on_leave[p.id]) }} today</span>
+        {% else %}<span class="pill ok">active</span>{% endif %}</td>
+  </tr>
+  {% else %}
+  <tr><td colspan="5" class="muted">No employees yet.</td></tr>
+  {% endfor %}
+</table></div>
+{% endblock %}

@@ -22,7 +22,9 @@ STALE_AFTER_S = 5.0
 
 class Camera:
     def __init__(self, url: str):
+        self.source = url
         self.url = int(url) if url.isdigit() else url
+        self._started = time.time()
         self._frame = None
         self._frame_time = 0.0
         self._lock = threading.Lock()
@@ -36,6 +38,9 @@ class Camera:
     def stop(self) -> None:
         self._stop.set()
         self._thread.join(timeout=10)
+
+    def started_for(self) -> float:
+        return time.time() - self._started
 
     def latest(self):
         """Return (frame, unix_time) of the newest frame, or (None, 0) if the stream is down."""

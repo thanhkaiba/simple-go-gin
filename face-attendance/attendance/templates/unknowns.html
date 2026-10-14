@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block body %}
+<h1>Unidentified faces</h1>
+<p class="muted">Pick the right person to record their arrival at the time of the photo. The face is also added to
+  their reference photos, so they are recognised next time. Use <em>Ignore</em> for visitors.</p>
+<div class="grid">
+{% for u in items %}
+  <div class="card">
+    {% if u.image %}<a href="{{ url_for('media', path=u.image) }}" target="_blank"><img src="{{ url_for('media', path=u.image) }}" alt=""></a>{% endif %}
+    <div>{{ local(u.ts).strftime('%Y-%m-%d %H:%M:%S') }}</div>
+    {% if u.guess_id %}<div class="muted">Closest match: {{ employees.get(u.guess_id, u.guess_id) }} ({{ '%.2f'|format(u.guess_score) }})</div>{% endif %}
+    <form method="post" action="{{ url_for('assign', unknown_id=u.id) }}">
+      <select name="employee_id" style="width:100%">
+        {% for id, name in employees.items() %}<option value="{{ id }}" {{ 'selected' if id == u.guess_id }}>{{ name }}</option>{% endfor %}
+      </select>
+      <button class="primary" style="width:100%; margin-top:4px">Confirm this person</button>
+    </form>
+    <form method="post" action="{{ url_for('ignore', unknown_id=u.id) }}"><button style="width:100%; margin-top:4px">Ignore</button></form>
+  </div>
+{% else %}
+  <p>Nothing to review.</p>
+{% endfor %}
+</div>
+{% endblock %}

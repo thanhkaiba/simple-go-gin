@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block body %}
+<h1>Change log</h1>
+<p class="muted">Every change made on this page: corrections, confirmations, photos, employees, calendar and settings.</p>
+<div class="table-wrap"><table>
+  <tr><th>When</th><th>Who</th><th>What</th><th>Details</th></tr>
+  {% for ts, who, action, details in rows %}
+  <tr><td>{{ local(ts).strftime('%Y-%m-%d %H:%M') }}</td><td>{{ who }}</td><td>{{ action }}</td><td>{{ details }}</td></tr>
+  {% else %}<tr><td colspan="4" class="muted">No changes yet.</td></tr>{% endfor %}
+</table></div>
+{% endblock %}

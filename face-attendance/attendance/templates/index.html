@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% macro photo(path) %}{% if path %}<a href="{{ url_for('media', path=path) }}" target="_blank"><img class="thumb" src="{{ url_for('media', path=path) }}" alt=""></a>{% endif %}{% endmacro %}
+{% macro actions(emp_id, has_arrival, time='') %}
+  <form class="inline" method="post" action="{{ url_for('set_arrival', day=rep.day.isoformat(), employee_id=emp_id) }}">
+    <input type="time" name="time" value="{{ time }}" required>
+    <button>{{ 'Change time' if has_arrival else 'Add arrival' }}</button>
+  </form>
+  {% if has_arrival %}
+  <form class="inline" method="post" action="{{ url_for('reassign_arrival', day=rep.day.isoformat(), employee_id=emp_id) }}">
+    <select name="to" required><option value="">Wrong person? It was…</option>
+      {% for id, name in employees.items() if id != emp_id %}<option value="{{ id }}">{{ name }}</option>{% endfor %}
+    </select>
+    <button>Move</button>
+  </form>
+  <form class="inline" method="post" action="{{ url_for('delete_arrival', day=rep.day.isoformat(), employee_id=emp_id) }}"
+        onsubmit="return confirm('Delete this arrival?')">
+    <button class="danger">Delete</button>
+  </form>
+  {% endif %}
+{% endmacro %}
+{% block body %}
+<div class="row" style="justify-content: space-between">
+  <h1>Attendance {{ rep.day.isoformat() }} ({{ WEEKDAYS[rep.day.weekday()] }})</h1>
+  <form class="inline">
+    <input type="date" name="day" value="{{ rep.day.isoformat() }}"><button>Show</button>
+    {% if rep.day != today %}<a href="{{ url_for('index') }}">Today</a>{% endif %}
+  </form>
+</div>
+
+{% if rep.day_note %}<div class="warn">{{ rep.day_note }}</div>{% endif %}
+{% if not rep.workday %}<p class="muted">Not a work day: no notifications are sent.</p>{% endif %}
+
+<p class="stats">
+  <span class="ok">On time: {{ rep.on_time|length }}</span>
+  <span class="late">Late: {{ rep.late|length }}</span>
+  <span class="bad">Not seen: {{ rep.not_seen|length }}</span>
+  <span class="muted">On leave: {{ rep.on_leave|length }}</span>
+  {% if rep.pending_unknowns %}<a href="{{ url_for('unknowns') }}">Unidentified faces: {{ rep.pending_unknowns }}</a>{% endif %}
+</p>
+<p class="muted">On time if first seen before {{ rep.window.late_after.strftime('%H:%M') }}.
+  Camera runs {{ rep.window.start.strftime('%H:%M') }}–{{ rep.window.end.strftime('%H:%M') }}.
+  Use the buttons to fix anything the camera got wrong; every change is kept in the change log.</p>
+{% for a, b in rep.outages %}<div class="warn">⚠️ Camera/system was down {{ a.strftime('%H:%M') }}–{{ b.strftime('%H:%M') }}. Arrivals in this period may be missing.</div>{% endfor %}
+{% if rep.no_photos %}<div class="warn">⚠️ No reference photos, cannot be recognised:
+  {% for id, name in rep.no_photos %}<a href="{{ url_for('employee', employee_id=id) }}">{{ name }}</a>{{ ', ' if not loop.last }}{% endfor %}</div>{% endif %}
+
+{% if rep.late %}
+<h2 class="late">Late</h2>
+<div class="table-wrap"><table>
+  <tr><th>Photo</th><th>Employee</th><th>Arrived</th><th>Late by</th><th class="hide-sm">Source</th><th>Fix</th></tr>
+  {% for a in rep.late %}
+  <tr><td>{{ photo(a.image) }}</td><td>{{ a.name }}</td><td>{{ a.time }}</td><td>{{ late(a) }} min</td>
+      <td class="hide-sm muted">{{ SOURCES.get(a.source, a.source) }}{% if a.score %} ({{ '%.2f'|format(a.score) }}){% endif %}</td>
+      <td>{{ actions(a.employee_id, true, a.time) }}</td></tr>
+  {% endfor %}
+</table></div>
+{% endif %}
+
+{% if rep.not_seen %}
+<h2 class="bad">Not seen on camera</h2>
+<div class="table-wrap"><table>
+  <tr><th>Employee</th><th>Fix</th></tr>
+  {% for id, name in rep.not_seen %}<tr><td>{{ name }}</td><td>{{ actions(id, false) }}</td></tr>{% endfor %}
+</table></div>
+{% endif %}
+
+{% if rep.on_leave %}
+<h2 class="muted">On leave</h2>
+<table>{% for id, name, kind in rep.on_leave %}<tr><td>{{ name }}</td><td class="muted">{{ kind }}</td></tr>{% endfor %}</table>
+{% endif %}
+
+<h2 class="ok">On time</h2>
+<div class="table-wrap"><table>
+  <tr><th>Photo</th><th>Employee</th><th>Arrived</th><th class="hide-sm">Source</th><th>Fix</th></tr>
+  {% for a in rep.on_time %}
+  <tr><td>{{ photo(a.image) }}</td><td>{{ a.name }}</td><td>{{ a.time }}</td>
+      <td class="hide-sm muted">{{ SOURCES.get(a.source, a.source) }}{% if a.score %} ({{ '%.2f'|format(a.score) }}){% endif %}</td>
+      <td>{{ actions(a.employee_id, true, a.time) }}</td></tr>
+  {% else %}<tr><td colspan="5" class="muted">Nobody yet.</td></tr>{% endfor %}
+</table></div>
+{% endblock %}

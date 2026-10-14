@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block body %}
+<p><a href="{{ url_for('employees') }}">← Employees</a></p>
+<h1>{{ person.name }} <span class="muted">({{ person.id }})</span></h1>
+
+<div class="card">
+  <form method="post" action="{{ url_for('update_employee', employee_id=person.id) }}" class="row">
+    <label>Name<input name="name" value="{{ person.name }}" required></label>
+    <label style="flex-direction:row; align-items:center; gap:6px"><input type="checkbox" name="active" {{ 'checked' if person.active }}> Active (tracked by the camera)</label>
+    <button class="primary">Save</button>
+  </form>
+</div>
+
+<h2>Reference photos ({{ refs|length }})</h2>
+<p class="muted">Upload 5–10 clear photos: looking straight, slightly left and right, with and without glasses, and one
+  with a mask if they often wear one. Frames from the door camera itself work best.</p>
+<div class="card">
+  <form method="post" action="{{ url_for('upload_photos', employee_id=person.id) }}" enctype="multipart/form-data" class="row">
+    <label>Photos<input type="file" name="photos" accept="image/*" multiple required></label>
+    <button class="primary">Upload</button>
+  </form>
+</div>
+<div class="grid">
+  {% for r in refs %}
+  <div class="card">
+    {% if r.image %}<img src="{{ url_for('media', path=r.image) }}" alt="">{% else %}<div class="muted">(no image)</div>{% endif %}
+    <div class="muted">{{ {'upload': 'Uploaded', 'enroll': 'From folder', 'admin': 'Confirmed by admin'}.get(r.source.split(':')[0], r.source) }}</div>
+    <form method="post" action="{{ url_for('delete_photo', employee_id=person.id) }}" onsubmit="return confirm('Delete this photo?')">
+      <input type="hidden" name="{{ 'image' if r.image else 'ref_id' }}" value="{{ r.image or r.id }}">
+      <button class="danger" style="width:100%">Delete</button>
+    </form>
+  </div>
+  {% else %}
+  <p class="bad">No photos yet: this person cannot be recognised.</p>
+  {% endfor %}
+</div>
+
+<h2>Upcoming leave</h2>
+<table>
+  {% for l in leaves %}<tr><td>{{ l.start }} – {{ l.end }}</td><td>{{ LEAVE_KINDS.get(l.kind, l.kind) }}</td><td class="muted">{{ l.note }}</td></tr>
+  {% else %}<tr><td class="muted">None.</td></tr>{% endfor %}
+</table>
+<p><a href="{{ url_for('calendar') }}">Add leave on the Holidays &amp; leave page</a></p>
+
+<h2 class="bad">Delete permanently</h2>
+<div class="card">
+  <p>Deletes this employee, their reference photos and face data (past attendance records are kept).
+    To stop tracking someone temporarily, untick <em>Active</em> instead.</p>
+  <form method="post" action="{{ url_for('delete_employee', employee_id=person.id) }}" class="row">
+    <label><span>Type <code>{{ person.id }}</code> to confirm</span><input name="confirm" required></label>
+    <button class="danger">Delete employee</button>
+  </form>
+</div>
+{% endblock %}

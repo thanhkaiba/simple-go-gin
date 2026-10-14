@@ -5,11 +5,16 @@ import argparse
 import datetime as dt
 import logging
 import logging.handlers
+import sys
 
 from . import config as config_module
 
 
 def setup_logging(cfg) -> None:
+    # A Windows service writes the console log with the legacy code page; never fail on emoji.
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
     log_dir = cfg.path(cfg.data_dir)
     log_dir.mkdir(parents=True, exist_ok=True)
     handlers = [
@@ -62,22 +67,17 @@ def main() -> None:
         evaluate(cfg, cfg.path(args.gallery), cfg.path(args.test) if args.test else None,
                  args.backends or [cfg.recognition.backend])
     elif args.command in ("report", "test-chat"):
-        from .gallery import Gallery
-        from .notifier import GoogleChat
-        from .service import AttendanceService
-        from .store import Store
+        from .pipeline import App
 
-        store = Store(cfg.path(cfg.data_dir) / "attendance.db")
-        store.sync_employees(cfg.path(cfg.employees_file))
-        service = AttendanceService(cfg, store, GoogleChat(cfg.google_chat.webhook_url, store), Gallery())
+        app = App(cfg)
         if args.command == "report":
-            day = dt.date.fromisoformat(args.day) if args.day else service.now().date()
-            print(service.summary_text(service.report(day)))
+            day = dt.date.fromisoformat(args.day) if args.day else app.service.now().date()
+            print(app.service.summary_text(app.service.report(day)))
         else:
             if not cfg.google_chat.webhook_url:
                 raise SystemExit("google_chat.webhook_url is not set")
             try:
-                service.chat.send_now("✅ The attendance system can post to this space.")
+                app.chat.send_now("✅ The attendance system can post to this space.")
             except Exception as exc:
                 raise SystemExit(f"Sending failed: {exc}")
             print("Sent, check Google Chat.")
