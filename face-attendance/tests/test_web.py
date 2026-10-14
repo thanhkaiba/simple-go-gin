@@ -21,10 +21,10 @@ def test_pages_render_and_admin_can_assign_unknown(env):  # noqa: F811
     c = client(service, store)
 
     page = c.get("/").get_data(as_text=True)
-    assert "Anh A" in page and "09:05" in page and "Không thấy: 2" in page
+    assert "Alice" in page and "09:05" in page and "Not seen: 2" in page
 
     page = c.get("/unknowns").get_data(as_text=True)
-    assert "Giống nhất: Anh B" in page
+    assert "Closest match: Bob" in page
 
     resp = c.post(f"/unknowns/{uid}/assign", data={"employee_id": "B"})
     assert resp.status_code == 302

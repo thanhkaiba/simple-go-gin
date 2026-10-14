@@ -1,153 +1,172 @@
-# Chấm công bằng camera
+# Camera attendance
 
-Máy tính trong văn phòng đọc hình từ camera, nhận diện khuôn mặt **ngay tại máy** (InsightFace), tính ai đúng giờ, ai đi muộn, rồi gửi thông báo lên **Google Chat**. Khuôn mặt nào không nhận ra được thì gửi cho admin xác nhận trên một trang web nhỏ.
+A PC in the office reads the camera stream, recognises faces **locally**, works out who arrived on time and who is late, and posts to **Google Chat**. Faces it cannot identify go to a small web page where an admin picks the right person.
 
 ```
-Camera (RTSP) ──► Máy văn phòng: phát hiện mặt → lọc ảnh xấu → theo dõi qua nhiều khung → so với ảnh mẫu
+Camera (RTSP) ──► Office PC: detect faces → drop poor frames → follow each face across frames → match
                     │
-                    ├─ chắc chắn ─────────► ghi giờ đến
-                    └─ không chắc ────────► hàng chờ "chưa xác định" → admin chọn đúng người
+                    ├─ confident ──────► record arrival time
+                    └─ not confident ──► "unidentified" queue → admin picks the right person
                     │
-                    └─► Google Chat: cảnh báo 10:00, người đến muộn, khuôn mặt lạ, tổng kết 11:00
+                    └─► Google Chat: 10:00 not-seen list, late arrivals, unidentified faces, 11:00 summary
 ```
 
-## Quy tắc chấm công
+## Attendance rules
 
-Giờ giấc lấy trong `config.yaml`, mặc định như sau:
+Times come from `config.yaml`; defaults shown.
 
-| Tình huống | Kết quả |
+| Situation | Result |
 |---|---|
-| Thấy lần đầu **trước 10:00** | Đúng giờ. Sau 10:00 có thấy lại cũng không tính muộn |
-| **Đến 10:00 vẫn chưa thấy** | Đi muộn |
-| Thấy lần đầu **sau 10:00** | Đi muộn. Google Chat báo ngay: "🟠 *A* đến lúc 10:23, muộn 23 phút" |
-| Cả buổi sáng không thấy | Ghi "Không thấy trên camera" trong bản tổng kết |
-| Khuôn mặt không nhận ra | Gửi admin xác nhận. Admin chọn đúng người thì giờ đến lấy theo thời điểm trong ảnh |
+| First seen **before 10:00** | On time. Being seen again after 10:00 changes nothing |
+| **Not seen by 10:00** | Late |
+| First seen **after 10:00** | Late, posted right away: "🟠 *Bob* arrived at 10:23, 23 min late." |
+| Not seen all morning | Listed as "Not seen on camera" in the summary |
+| Face not recognised | Sent to the admin. Once confirmed, the arrival time is the time of the photo |
 
-**Các tin nhắn Google Chat** (mỗi ngày gom vào một luồng):
+**Google Chat messages.** All of a day's messages go in one thread.
 
-- **10:00:** danh sách những người chưa thấy.
-- **Ngay khi có người đến sau 10:00:** báo người đó đến muộn.
-- **Khi có khuôn mặt lạ:** gom lại tối đa 5 phút một lần, kèm link để admin xác nhận.
-- **Khi admin xác nhận** một người đã có trong danh sách 10:00 nhưng thực ra đến trước 10:00: gửi tin đính chính "không tính đi muộn".
-- **11:00:** tổng kết ngày.
-- **Khi camera hoặc máy tính ngừng hoạt động** trong khung giờ: các tin nhắn trên ghi rõ khoảng thời gian bị gián đoạn, để không ai bị tính oan.
+- **10:00:** everyone not seen yet.
+- **Late arrival:** as it happens.
+- **Unidentified faces:** batched every 5 minutes at most, with a link to review them.
+- **Correction:** sent when the admin confirms that someone on the 10:00 list actually arrived before 10:00.
+- **11:00:** daily summary.
+- **Camera or PC outage:** if either stops during the window, the messages say for which period, so nobody is marked late unfairly.
 
-**⚠️ Camera chỉ chạy trong khung giờ** (mặc định 09:00–11:00). Ai đến **trước 9:00** mà không đi qua camera lần nào nữa sau 9:00 sẽ bị tính đi muộn. Nếu nhân viên hay đến sớm, hãy đặt `window_start` sớm hơn, ví dụ `"08:00"`.
+**⚠️ The camera only runs during the window** (default 09:00–11:00). Someone who arrives **before 09:00** and does not pass the camera again after 09:00 is counted as late. If people come in early, set `window_start` earlier, e.g. `"08:00"`.
 
-## 1. Chuẩn bị máy
+## Model choice
 
-Dùng một máy riêng chạy cả ngày, Windows 10/11 hoặc Ubuntu. Không dùng laptop cá nhân của ai.
+The detection and recognition models were picked on their merits, not on what earlier prototypes used. Two backends are supported, and `evaluate` compares them on your own photos:
 
-- **Python 3.10–3.12.** InsightFace chưa hỗ trợ tốt các bản mới hơn.
-- **Windows:** cài thêm [Microsoft C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) (chọn "Desktop development with C++"), vì InsightFace cần biên dịch khi cài.
-- **Tắt chế độ ngủ:** Power → Sleep → Never.
-- **BIOS:** bật *Restore on AC Power Loss* để máy tự bật lại khi có điện.
-- **Windows Update:** đặt giờ cập nhật ngoài khung 8:00–12:00.
-- **Nên cắm UPS** cho máy, router và camera.
+| | `insightface` (default) | `opencv` |
+|---|---|---|
+| Detector | SCRFD-10G (5 landmarks) | YuNet (5 landmarks) |
+| Recogniser | ArcFace ResNet50, WebFace600K | SFace |
+| Accuracy | Higher, notably on blurred and small faces | Lower |
+| Speed (CPU) | ~200 ms per frame at 640 px | ~20 ms per frame |
+| Licence | **Non-commercial research only.** Commercial use needs a licence from InsightFace (contact@insightface.ai) | MIT / Apache 2.0, free for commercial use |
+
+Other design decisions:
+
+- **No YOLO.**
+  - A generic YOLO detector gives no facial landmarks, and landmark alignment matters more for accuracy than the detector itself.
+  - Ultralytics YOLOv8 is also AGPL-3.0 licensed.
+- **No `insightface` Python package.**
+  - The two ONNX models run directly on onnxruntime, so installation needs no C++ compiler on Windows.
+  - Only the model weights carry the licence restriction; the package code is not needed.
+- **Recognition stays local.** No images leave the office. A cloud API (e.g. AWS Rekognition) could later be added for the hard cases only.
+
+> Company attendance is a commercial use. Either get an InsightFace licence or switch to `backend: opencv`. Run `evaluate` with both backends first to see what the difference is on your photos.
+
+## 1. Set up the PC
+
+Use a dedicated PC that stays on, running Windows 10/11 or Ubuntu. Not someone's laptop.
+
+- **Python 3.10 or newer.**
+- **Disable sleep:** Power → Sleep → Never.
+- **BIOS:** enable *Restore on AC Power Loss* so the PC comes back on after a power cut.
+- **Windows Update:** set active hours so updates never restart the PC during the morning.
+- **UPS:** recommended for the PC, router and camera.
 
 ```bash
 cd face-attendance
 python -m venv .venv
 .venv\Scripts\activate          # Linux: source .venv/bin/activate
 pip install -r requirements.txt
+cp config.example.yaml config.yaml          # Windows: copy
+cp employees.example.csv employees.csv
+python -m attendance download-models        # backend from config.yaml; add --backend opencv for the other
 ```
 
-Lần chạy đầu tiên, InsightFace tự tải bộ model `buffalo_l` (khoảng 300 MB) về `~/.insightface`.
+## 2. Configure
 
-## 2. Cấu hình
+**`employees.csv`:** two columns, `id,name`. It can be edited in Excel; save as "CSV UTF-8".
 
-```bash
-copy config.example.yaml config.yaml        # Linux: cp
-copy employees.example.csv employees.csv
-```
+**Ezviz camera:**
 
-**`employees.csv`:** danh sách nhân viên, gồm 2 cột `id,name`. Sửa được bằng Excel, nhớ lưu dạng CSV UTF-8.
-
-**Camera Ezviz:**
-
-1. Trong app EZVIZ, bật **RTSP** hoặc **LAN Live View** nếu dòng camera có mục này.
-2. Đặt `camera.url` thành:
+1. In the EZVIZ app, enable **RTSP** or **LAN Live View** if your model has it.
+2. Set `camera.url` to:
    ```
-   rtsp://admin:<MÃ_XÁC_MINH>@<IP_CAMERA>:554/H.264
+   rtsp://admin:<VERIFICATION_CODE>@<CAMERA_IP>:554/H.264
    ```
-   Mã xác minh gồm 6 chữ in hoa trên tem dưới đáy camera.
-3. Thử trước bằng VLC: Media → Open Network Stream.
-4. Nên vào router **cố định IP cho camera** (DHCP reservation).
+   The verification code is the 6 capital letters on the label under the camera.
+3. Check the stream first in VLC: Media → Open Network Stream.
+4. Give the camera a fixed IP in the router (DHCP reservation).
 
-## 3. Đăng ký khuôn mặt nhân viên
-
-Đặt ảnh theo cấu trúc thư mục:
+## 3. Enroll employees' faces
 
 ```
 faces/
-  NV001/  anh1.jpg anh2.jpg ...
+  NV001/  photo1.jpg photo2.jpg ...
   NV002/  ...
 ```
 
-- Mỗi người **5–10 ảnh**: nhìn thẳng, hơi nghiêng trái/phải, có và không đeo kính, nếu được thì thêm 1–2 ảnh đeo khẩu trang.
-- **Ảnh chụp từ chính camera ở cửa** là tốt nhất, vì cùng góc và cùng ánh sáng. Có thể lấy ngay từ tập ảnh đã gán nhãn của đội trước.
+- **5–10 photos per person:** looking straight, slightly left and right, with and without glasses, and one or two with a mask if possible.
+- **Frames from the door camera itself are best**, because they have the same angle and lighting. Existing labelled data can be used.
 
 ```bash
 python -m attendance enroll --faces faces
 ```
 
-Chạy lại lệnh này bất cứ lúc nào thì ảnh đăng ký cũ được thay bằng ảnh mới. Khuôn mặt hệ thống học được qua các lần admin xác nhận vẫn được giữ lại.
+Re-running replaces the enrolled photos. Faces learned from admin confirmations are kept. Faces are stored per model, so after switching backend, run `enroll` again.
 
-## 4. Chọn ngưỡng nhận diện (quan trọng cho độ chính xác)
+## 4. Compare backends and choose thresholds (important)
 
-Dùng ảnh đã gán nhãn để chọn `accept_score` và `min_margin`, sao cho **không bao giờ nhận nhầm người**:
+Use labelled photos to set `accept_score` and `min_margin` so that **nobody is ever identified as someone else**.
 
 ```bash
-# Có bộ ảnh thử riêng: eval/<mã NV>/*.jpg, và eval/_unknown/*.jpg cho người không phải nhân viên
-python -m attendance evaluate --gallery faces --test eval
+# Separate test photos: eval/<employee id>/*.jpg, plus eval/_unknown/*.jpg for non-employees
+python -m attendance evaluate --gallery faces --test eval --backends insightface opencv
 
-# Chỉ có một bộ ảnh: mỗi ảnh được thử với các ảnh còn lại
-python -m attendance evaluate --gallery faces
+# Only one set of photos: each photo is tested against all the others
+python -m attendance evaluate --gallery faces --backends insightface opencv
 ```
 
-Lệnh in ra bảng kết quả và một dòng `Đề xuất: accept_score: ...  min_margin: ...`. Chép hai giá trị này vào `config.yaml`, nên cộng thêm khoảng 0.02 vào `accept_score` để có biên an toàn.
+For each backend the command prints a table and a line like `Recommended: accept_score: ...  min_margin: ...`. Copy the values for your chosen backend into `config.yaml`, and add about 0.02 to `accept_score` as a safety margin.
 
-Khi chạy thật, một người chỉ được xác nhận khi **ít nhất 3 khung hình rõ nét cùng đồng ý** (`votes_required`). Vì vậy tỉ lệ đúng mỗi lượt đi qua sẽ cao hơn tỉ lệ trên từng ảnh mà lệnh này in ra.
+Include hard photos in the test set: dark, blurred, side views, masks. They are what separates the backends.
+
+When running live, a person is only identified once **at least 3 good frames agree** (`votes_required`). The per-visit accuracy is therefore higher than the per-photo figures.
 
 ## 5. Google Chat
 
-1. Mở Space của team admin → tên Space → **Apps & integrations** → **Webhooks** → **Add webhook**.
-2. Chép URL vào `google_chat.webhook_url`.
-3. Gửi thử:
+1. In the admin team's space: space name → **Apps & integrations** → **Webhooks** → **Add webhook**.
+2. Put the URL in `google_chat.webhook_url`.
+3. Test it:
    ```bash
    python -m attendance test-chat
    ```
 
-Khi mất mạng, tin nhắn được giữ lại trên máy (tối đa 24 giờ) và tự gửi khi có mạng.
+Messages that cannot be sent (no internet) are kept on the PC and retried for up to 24 hours.
 
-## 6. Chạy
+## 6. Run
 
 ```bash
 python -m attendance run
 ```
 
-**Trang admin:** mở `http://<IP máy>:8000`. Nhớ đặt `web.password` trong config.
+**Admin page:** open `http://<PC IP>:8000`, and set `web.password` in the config.
 
-- **Hôm nay:** ai đúng giờ, ai đi muộn, ai không thấy, kèm ảnh. Xem được cả ngày cũ.
-- **Khuôn mặt chưa xác định:** chọn đúng người rồi bấm "Xác nhận". Hệ thống tính giờ đến theo ảnh, và **học thêm khuôn mặt đó** để lần sau tự nhận ra. Nếu là khách thì bấm "Bỏ qua".
-- **Xem từ xa:** mặc định trang chỉ mở được trong mạng công ty. Muốn xem từ ngoài thì cài [Tailscale](https://tailscale.com) lên máy này và máy của admin. Không mở port ra internet.
+- **Today:** who was on time, late or not seen, with photos. Any past day can be opened.
+- **Unidentified faces:** pick the right person and click *Confirm*. Their arrival is recorded at the photo time, and the face is learned so they are recognised next time. *Ignore* is for visitors.
+- **Remote access:** the page is only reachable inside the office network by default. For remote access install [Tailscale](https://tailscale.com) on this PC and the admin's device. Do not open a port to the internet.
 
-**Lệnh khác:**
-- `python -m attendance report --day 2026-10-14`: in bản tổng kết của một ngày ra màn hình.
+**Other commands:**
+- `python -m attendance report --day 2026-10-14`: print a day's summary.
 
-### Chạy tự động khi bật máy
+### Start automatically
 
-**Windows:** dùng [NSSM](https://nssm.cc).
+**Windows**, with [NSSM](https://nssm.cc):
 ```bat
-nssm install ChamCong "C:\cham-cong\face-attendance\.venv\Scripts\python.exe" "-m attendance run"
-nssm set ChamCong AppDirectory "C:\cham-cong\face-attendance"
-nssm start ChamCong
+nssm install Attendance "C:\attendance\face-attendance\.venv\Scripts\python.exe" "-m attendance run"
+nssm set Attendance AppDirectory "C:\attendance\face-attendance"
+nssm start Attendance
 ```
 
-**Linux:** `/etc/systemd/system/cham-cong.service`
+**Linux**, `/etc/systemd/system/attendance.service`:
 ```ini
 [Unit]
-Description=Cham cong camera
+Description=Camera attendance
 After=network-online.target
 
 [Service]
@@ -160,47 +179,52 @@ RestartSec=10
 WantedBy=multi-user.target
 ```
 ```bash
-sudo systemctl enable --now cham-cong
+sudo systemctl enable --now attendance
 ```
 
-### Cảnh báo khi máy chết
+### Alert when the PC stops
 
-Tạo một check miễn phí trên [Healthchecks.io](https://healthchecks.io) (chu kỳ 1 phút, cho trễ 5 phút), rồi chép URL ping vào `healthcheck_url`. Nếu máy tắt hoặc chương trình dừng, Healthchecks.io sẽ gửi email báo.
+Create a free check on [Healthchecks.io](https://healthchecks.io) with a 1-minute period and 5-minute grace, and put its ping URL in `healthcheck_url`. If the PC or the program stops, Healthchecks.io sends an email.
 
-Log nằm ở `data/attendance.log`, ảnh khuôn mặt ở `data/crops/`, dữ liệu ở `data/attendance.db`.
+Files:
+- logs: `data/attendance.log`
+- face photos: `data/crops/`
+- database: `data/attendance.db`
 
-## Mẹo tăng độ chính xác
+## Getting the best accuracy
 
-**Vị trí camera** quan trọng hơn mọi cài đặt phần mềm:
-- Đặt ở chỗ ai cũng **phải đi qua và nhìn về phía camera**.
-- Ngang tầm mặt hoặc cao hơn một chút, chúc xuống dưới 15°.
-- Mặt người trong khung hình nên rộng **từ 80 px trở lên**.
+**Camera placement** matters more than any setting.
+- Mount it where everyone **must walk towards it**.
+- Face height or slightly above, tilted down less than 15°.
+- Faces should be **at least 80 px wide** in the image.
 
-**Ánh sáng:** chiếu từ phía trước mặt người. **Không** để camera nhìn ra cửa kính hay cửa sổ (ngược sáng). Khi hình tối, hệ thống tự tăng tương phản (`enhance_low_light`), nhưng thêm đèn vẫn hiệu quả hơn.
+**Light** should come from in front of people. **Never** point the camera at a glass door or window (backlight). Dark frames are contrast-enhanced automatically (`enhance_low_light`), but a lamp works better.
 
-**Khẩu trang, kính râm:**
-- Thêm ảnh mẫu có khẩu trang.
-- Ca nào vẫn không chắc chắn sẽ vào hàng chờ cho admin, không bị đoán bừa.
-- Thực tế nhất là quy định "nhìn camera thì kéo khẩu trang xuống 1 giây".
+**Masks and sunglasses:**
+- Enroll photos with masks.
+- Anything still uncertain goes to the admin queue rather than being guessed.
+- The most effective fix is asking people to lower their mask for a second at the camera.
 
-**Camera Wi-Fi để trên bàn hay rớt hình.** Nếu có điều kiện, chuyển sang camera có dây (PoE).
+**Wi-Fi cameras on a desk** drop frames. A wired PoE camera is more reliable.
 
-**Máy yếu, xử lý không kịp:** giảm `process_fps` xuống 3, hoặc `det_size` xuống 480. Đổi lại, mặt ở xa sẽ khó phát hiện hơn.
+**Slow PC:**
+- Lower `process_fps` to 3, or `det_size` to 480 (distant faces are then harder to detect).
+- Or use `backend: opencv`, which is about 10× faster.
 
-## Cách hệ thống tránh nhận nhầm
+## How wrong identifications are avoided
 
-1. **SCRFD + căn chỉnh 5 điểm:** khuôn mặt được căn thẳng trước khi tính đặc trưng bằng ArcFace (`buffalo_l`).
-2. **Lọc chất lượng:** khung hình có mặt nhỏ, mờ, quay nghiêng nhiều hoặc độ tin cậy thấp **không được bỏ phiếu**.
-3. **So với nhiều ảnh mẫu:** mỗi người có nhiều ảnh mẫu. Điểm của một người là trung bình 2 ảnh mẫu giống nhất, để một ảnh mẫu xấu không làm lệch kết quả.
-4. **Cách biệt rõ:** người giống nhất phải hơn người thứ hai ít nhất `min_margin`.
-5. **Nhiều khung hình đồng ý:** cần `votes_required` khung hình cùng chọn một người, và số phiếu phải gấp đôi tổng phiếu của những người khác.
-6. **Không chắc thì không đoán:** những ca còn lại vào hàng chờ cho admin. Mỗi lần admin xác nhận, hệ thống có thêm ảnh mẫu thật từ camera.
+1. **5-point alignment:** every face is aligned before its embedding is computed.
+2. **Quality gate:** frames where the face is small, blurred, turned away or weakly detected **do not vote**.
+3. **Several references per person:** a person's score is the mean of their two closest reference photos, so one odd photo does not dominate.
+4. **Clear margin:** the best match must beat the runner-up by `min_margin`.
+5. **Several frames must agree:** `votes_required` frames must pick the same person, with at least twice the votes of everyone else combined.
+6. **No guessing:** everything else goes to the admin. Each confirmation adds a real camera image to that person's references.
 
-## Phát triển
+## Development
 
 ```bash
 pip install -r requirements-dev.txt
 python -m pytest
 ```
 
-Các test không cần InsightFace hay camera.
+The tests need no models, camera or OpenCV.

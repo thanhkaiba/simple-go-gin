@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS employees (
 );
 CREATE TABLE IF NOT EXISTS embeddings (
     id INTEGER PRIMARY KEY,
+    model TEXT NOT NULL,
     employee_id TEXT NOT NULL,
     vector BLOB NOT NULL,
     source TEXT NOT NULL,
@@ -38,6 +39,7 @@ CREATE TABLE IF NOT EXISTS unknowns (
     day TEXT NOT NULL,
     ts TEXT NOT NULL,
     image TEXT,
+    model TEXT,
     vector BLOB,
     guess_id TEXT,
     guess_score REAL,
@@ -83,6 +85,7 @@ class Unknown:
     id: int
     ts: dt.datetime
     image: str | None
+    model: str | None
     vector: np.ndarray | None
     guess_id: str | None
     guess_score: float | None
@@ -132,18 +135,21 @@ class Store:
 
     # embeddings ------------------------------------------------------------
 
-    def add_embedding(self, employee_id: str, vector: np.ndarray, source: str, now: dt.datetime) -> None:
+    def add_embedding(self, model: str, employee_id: str, vector: np.ndarray, source: str, now: dt.datetime) -> None:
         self._exec(
-            "INSERT INTO embeddings (employee_id, vector, source, created_at) VALUES (?, ?, ?, ?)",
-            (employee_id, np.asarray(vector, dtype=np.float32).tobytes(), source, now.isoformat()),
+            "INSERT INTO embeddings (model, employee_id, vector, source, created_at) VALUES (?, ?, ?, ?, ?)",
+            (model, employee_id, np.asarray(vector, dtype=np.float32).tobytes(), source, now.isoformat()),
         )
 
-    def delete_embeddings(self, employee_id: str, source_prefix: str) -> None:
-        self._exec("DELETE FROM embeddings WHERE employee_id = ? AND source LIKE ?", (employee_id, source_prefix + "%"))
+    def delete_embeddings(self, model: str, employee_id: str, source_prefix: str) -> None:
+        self._exec("DELETE FROM embeddings WHERE model = ? AND employee_id = ? AND source LIKE ?",
+                   (model, employee_id, source_prefix + "%"))
 
-    def embeddings(self) -> list[tuple[str, np.ndarray]]:
+    def embeddings(self, model: str) -> list[tuple[str, np.ndarray]]:
         rows = self._all(
-            "SELECT e.employee_id, e.vector FROM embeddings e JOIN employees p ON p.id = e.employee_id WHERE p.active = 1"
+            "SELECT e.employee_id, e.vector FROM embeddings e JOIN employees p ON p.id = e.employee_id "
+            "WHERE p.active = 1 AND e.model = ?",
+            (model,),
         )
         return [(r["employee_id"], _vec(r["vector"])) for r in rows]
 
@@ -180,17 +186,17 @@ class Store:
 
     # unknown faces ---------------------------------------------------------
 
-    def add_unknown(self, day: dt.date, ts: dt.datetime, image: str | None, vector: np.ndarray | None,
-                    guess_id: str | None, guess_score: float | None) -> int:
+    def add_unknown(self, day: dt.date, ts: dt.datetime, image: str | None, model: str | None,
+                    vector: np.ndarray | None, guess_id: str | None, guess_score: float | None) -> int:
         blob = None if vector is None else np.asarray(vector, dtype=np.float32).tobytes()
         cur = self._exec(
-            "INSERT INTO unknowns (day, ts, image, vector, guess_id, guess_score) VALUES (?, ?, ?, ?, ?, ?)",
-            (day.isoformat(), ts.isoformat(), image, blob, guess_id, guess_score),
+            "INSERT INTO unknowns (day, ts, image, model, vector, guess_id, guess_score) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (day.isoformat(), ts.isoformat(), image, model, blob, guess_id, guess_score),
         )
         return cur.lastrowid
 
     def _unknown(self, r) -> Unknown:
-        return Unknown(r["id"], dt.datetime.fromisoformat(r["ts"]), r["image"], _vec(r["vector"]),
+        return Unknown(r["id"], dt.datetime.fromisoformat(r["ts"]), r["image"], r["model"], _vec(r["vector"]),
                        r["guess_id"], r["guess_score"], r["status"], r["employee_id"])
 
     def unknown(self, unknown_id: int) -> Unknown | None:

@@ -17,7 +17,13 @@ camera:
   enhance_low_light: true
 
 recognition:
-  model: buffalo_l        # most accurate InsightFace model pack
+  # insightface: SCRFD + ArcFace R50. Most accurate; weights are non-commercial research only
+  #              (commercial licence: contact@insightface.ai).
+  # opencv:      YuNet + SFace. Free for commercial use (MIT / Apache 2.0); less accurate.
+  # Compare both on your photos: python -m attendance evaluate --backends insightface opencv
+  backend: insightface
+  detector_model: ""      # empty = default file in models/ (python -m attendance download-models)
+  recognizer_model: ""
   det_size: 640
   use_gpu: false
   # A frame only votes if the face is big, sharp and roughly frontal enough:
@@ -27,7 +33,7 @@ recognition:
   max_yaw: 35
   max_pitch: 30
   # Identification. Tune these two with: python -m attendance evaluate
-  accept_score: 0.45      # cosine similarity needed for a frame to vote for a person
+  accept_score: 0.45      # cosine similarity for a frame to vote; start around 0.45 (insightface) or 0.40 (opencv)
   min_margin: 0.08        # and it must beat the second most similar person by this much
   votes_required: 3       # frames that must agree before a person is identified
   track_timeout_s: 1.5

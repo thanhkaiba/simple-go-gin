@@ -5,7 +5,6 @@ import argparse
 import datetime as dt
 import logging
 import logging.handlers
-from pathlib import Path
 
 from . import config as config_module
 
@@ -26,15 +25,20 @@ def main() -> None:
     parser = argparse.ArgumentParser(prog="python -m attendance")
     parser.add_argument("--config", default="config.yaml")
     sub = parser.add_subparsers(dest="command", required=True)
-    sub.add_parser("run", help="chạy camera + chấm công + trang admin")
-    p = sub.add_parser("enroll", help="đăng ký ảnh mẫu từ thư mục faces/<mã NV>/")
+    sub.add_parser("run", help="run camera processing, notifications and the admin page")
+    p = sub.add_parser("download-models", help="download the model files for a backend")
+    p.add_argument("--backend", choices=["insightface", "opencv"], default=None,
+                   help="default: the backend in config.yaml")
+    p = sub.add_parser("enroll", help="enroll reference photos from faces/<employee id>/")
     p.add_argument("--faces", default="faces")
-    p = sub.add_parser("evaluate", help="chọn ngưỡng nhận diện từ ảnh đã gán nhãn")
+    p = sub.add_parser("evaluate", help="compare backends and choose thresholds from labelled photos")
     p.add_argument("--gallery", default="faces")
     p.add_argument("--test", default=None)
-    p = sub.add_parser("report", help="in báo cáo một ngày ra màn hình")
-    p.add_argument("--day", default=None, help="YYYY-MM-DD, mặc định hôm nay")
-    sub.add_parser("test-chat", help="gửi thử một tin nhắn lên Google Chat")
+    p.add_argument("--backends", nargs="+", choices=["insightface", "opencv"], default=None,
+                   help="default: the backend in config.yaml")
+    p = sub.add_parser("report", help="print the summary for a day")
+    p.add_argument("--day", default=None, help="YYYY-MM-DD, default today")
+    sub.add_parser("test-chat", help="send a test message to Google Chat")
     args = parser.parse_args()
 
     cfg = config_module.load(args.config)
@@ -44,6 +48,10 @@ def main() -> None:
         from .pipeline import run
 
         run(cfg)
+    elif args.command == "download-models":
+        from .models import download
+
+        download(args.backend or cfg.recognition.backend, cfg.path("models"))
     elif args.command == "enroll":
         from .enroll import enroll
 
@@ -51,7 +59,8 @@ def main() -> None:
     elif args.command == "evaluate":
         from .evaluate import evaluate
 
-        evaluate(cfg, cfg.path(args.gallery), cfg.path(args.test) if args.test else None)
+        evaluate(cfg, cfg.path(args.gallery), cfg.path(args.test) if args.test else None,
+                 args.backends or [cfg.recognition.backend])
     elif args.command in ("report", "test-chat"):
         from .gallery import Gallery
         from .notifier import GoogleChat
@@ -66,12 +75,12 @@ def main() -> None:
             print(service.summary_text(service.report(day)))
         else:
             if not cfg.google_chat.webhook_url:
-                raise SystemExit("google_chat.webhook_url chưa được cấu hình")
+                raise SystemExit("google_chat.webhook_url is not set")
             try:
-                service.chat.send_now("✅ Kết nối Google Chat của hệ thống chấm công hoạt động.")
+                service.chat.send_now("✅ The attendance system can post to this space.")
             except Exception as exc:
-                raise SystemExit(f"Gửi thất bại: {exc}")
-            print("Đã gửi, kiểm tra trong Google Chat.")
+                raise SystemExit(f"Sending failed: {exc}")
+            print("Sent, check Google Chat.")
 
 
 if __name__ == "__main__":

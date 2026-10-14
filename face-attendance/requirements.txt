@@ -1,5 +1,4 @@
-insightface==0.7.3
-onnxruntime>=1.17
+onnxruntime>=1.17          # use onnxruntime-gpu instead on a machine with an NVIDIA GPU
 opencv-python-headless>=4.9
 numpy>=1.26
 Flask>=3.0

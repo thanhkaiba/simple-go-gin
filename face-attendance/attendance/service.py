@@ -72,6 +72,7 @@ class AttendanceService:
     def __init__(self, cfg: Config, store: Store, chat: GoogleChat, gallery: Gallery,
                  now: Callable[[], dt.datetime] | None = None):
         self.cfg = cfg
+        self.model_id = cfg.recognition.model_id()
         self.tz = cfg.tz
         self.store = store
         self.chat = chat
@@ -121,7 +122,7 @@ class AttendanceService:
                    guess_id: str | None, guess_score: float | None) -> int:
         ts = self._local(ts)
         log.info("Unknown face at %s (closest %s %.2f)", ts.strftime("%H:%M:%S"), guess_id, guess_score or 0)
-        return self.store.add_unknown(ts.date(), ts, image, vector, guess_id, guess_score)
+        return self.store.add_unknown(ts.date(), ts, image, self.model_id, vector, guess_id, guess_score)
 
     def resolve_unknown(self, unknown_id: int, employee_id: str) -> None:
         """Admin says this unknown face is `employee_id`: learn the face and count the arrival."""
@@ -131,9 +132,10 @@ class AttendanceService:
         if employee_id not in self.store.employees():
             raise ValueError(f"unknown employee {employee_id}")
         self.store.resolve_unknown(unknown_id, "assigned", employee_id)
-        if u.vector is not None:
-            self.store.add_embedding(employee_id, u.vector, f"admin:unknown:{unknown_id}", self.now())
-            self.gallery.add(employee_id, u.vector)
+        if u.vector is not None and u.model:
+            self.store.add_embedding(u.model, employee_id, u.vector, f"admin:unknown:{unknown_id}", self.now())
+            if u.model == self.model_id:
+                self.gallery.add(employee_id, u.vector)
         ts = self._local(u.ts)
         result = self.store.record_checkin(ts.date(), employee_id, ts, "admin", u.guess_score, u.image)
         if result in ("new", "earlier"):
@@ -148,14 +150,14 @@ class AttendanceService:
             return
         w = self.window(day)
         name = self.store.employees().get(employee_id, employee_id)
-        suffix = " (admin xác nhận)" if confirmed_by_admin else ""
+        suffix = " (confirmed by admin)" if confirmed_by_admin else ""
         if ts >= w.late_after:
             if self.cfg.google_chat.notify_late_arrivals:
                 late = int((ts - w.late_after).total_seconds() // 60)
-                self._send(f"🟠 *{name}* đến lúc {ts:%H:%M}, muộn {late} phút{suffix}.", day)
+                self._send(f"🟠 *{name}* arrived at {ts:%H:%M}, {late} min late{suffix}.", day)
         elif self.store.notice_sent(day, "deadline"):
             # They were on the 10:00 "not seen" list, but the admin found them earlier.
-            self._send(f"✅ Cập nhật: *{name}* đã đến lúc {ts:%H:%M}{suffix}, không tính đi muộn.", day)
+            self._send(f"✅ Update: *{name}* arrived at {ts:%H:%M}{suffix}, not late.", day)
 
     # reports -------------------------------------------------------------------
 
@@ -193,45 +195,45 @@ class AttendanceService:
         if not outages:
             return []
         spans = ", ".join(f"{a:%H:%M}–{b:%H:%M}" for a, b in outages)
-        return [f"⚠️ Camera/hệ thống không hoạt động: {spans}. Người đến trong khoảng này có thể bị thiếu."]
+        return [f"⚠️ Camera/system was down: {spans}. Arrivals during this time may be missing."]
 
     def deadline_text(self, rep: DayReport) -> str:
         w = rep.window
         if not rep.not_seen:
-            lines = [f"⏰ {w.late_after:%H:%M}: cả {rep.total} người đều đã đến đúng giờ 🎉"]
+            lines = [f"⏰ {w.late_after:%H:%M}: all {rep.total} people arrived on time 🎉"]
         else:
-            lines = [f"⏰ *{w.late_after:%H:%M}: {len(rep.not_seen)}/{rep.total} người chưa thấy* (tính là đi muộn):"]
+            lines = [f"⏰ *{w.late_after:%H:%M}: {len(rep.not_seen)}/{rep.total} people not seen yet* (counted as late):"]
             lines += [f"• {name}" for _, name in rep.not_seen]
         if rep.pending_unknowns:
-            lines.append(f"❓ Có {rep.pending_unknowns} khuôn mặt chưa xác định, có thể là người trong danh sách trên. "
-                         f"Admin xác nhận tại: {self._link('/unknowns')}")
+            lines.append(f"❓ {rep.pending_unknowns} unidentified faces, possibly people on this list. "
+                         f"Review: {self._link('/unknowns')}")
         lines += self._outage_lines(rep.outages)
-        lines.append(f"Chi tiết: {self._link('/')}")
+        lines.append(f"Details: {self._link('/')}")
         return "\n".join(lines)
 
     def summary_text(self, rep: DayReport) -> str:
         w = rep.window
         lines = [
-            f"📋 *Tổng kết chấm công {rep.day:%d/%m/%Y}*",
-            f"Đúng giờ: {len(rep.on_time)} · Đi muộn: {len(rep.late)} · Không thấy: {len(rep.not_seen)}"
-            f" · Khuôn mặt chưa xác định: {rep.pending_unknowns}",
+            f"📋 *Attendance summary {rep.day:%Y-%m-%d}*",
+            f"On time: {len(rep.on_time)} · Late: {len(rep.late)} · Not seen: {len(rep.not_seen)}"
+            f" · Unidentified faces: {rep.pending_unknowns}",
         ]
         if rep.late:
-            lines.append("*Đi muộn:*")
-            lines += [f"• {a.name}: {a.time} (muộn {minutes_late(a, w)} phút)" for a in rep.late]
+            lines.append("*Late:*")
+            lines += [f"• {a.name}: {a.time} ({minutes_late(a, w)} min late)" for a in rep.late]
         if rep.not_seen:
-            lines.append(f"*Không thấy trên camera từ {w.start:%H:%M} đến {w.end:%H:%M}:*")
+            lines.append(f"*Not seen on camera between {w.start:%H:%M} and {w.end:%H:%M}:*")
             lines += [f"• {name}" for _, name in rep.not_seen]
         if rep.pending_unknowns:
-            lines.append(f"❓ Admin cần xác nhận {rep.pending_unknowns} khuôn mặt: {self._link('/unknowns')}")
+            lines.append(f"❓ {rep.pending_unknowns} unidentified faces to review: {self._link('/unknowns')}")
         lines += self._outage_lines(rep.outages)
-        lines.append(f"Chi tiết: {self._link('/')}")
+        lines.append(f"Details: {self._link('/')}")
         return "\n".join(lines)
 
     def unknown_text(self, unknowns) -> str:
         times = ", ".join(self._local(u.ts).strftime("%H:%M") for u in unknowns)
-        return (f"❓ {len(unknowns)} khuôn mặt chưa xác định được ({times}). "
-                f"Admin vui lòng xem và chọn đúng người: {self._link('/unknowns')}")
+        return (f"❓ {len(unknowns)} unidentified faces ({times}). "
+                f"Please pick the right person: {self._link('/unknowns')}")
 
     # scheduler -----------------------------------------------------------------
 

@@ -86,3 +86,21 @@ def test_sync_employees_handles_excel_bom_and_deactivates_removed(tmp_path):
     csv.write_text("id,name\nA,Ánh\n", encoding="utf-8")
     store.sync_employees(csv)
     assert store.employees() == {"A": "Ánh"}
+
+
+def test_config_model_files_follow_backend(tmp_path):
+    p = tmp_path / "c.yaml"
+    p.write_text("recognition:\n  backend: opencv\n")
+    rc = config.load(p).recognition
+    assert rc.model_files()[1] == "models/face_recognition_sface_2021dec.onnx"
+    assert rc.model_id() == "face_recognition_sface_2021dec"
+    p.write_text("recognition:\n  backend: dlib\n")
+    with pytest.raises(ValueError, match="backend"):
+        config.load(p)
+
+
+def test_recommend_takes_middle_of_safe_range_not_its_edge():
+    samples = [Sample("A", "A", 0.80, 0.10), Sample(None, "A", 0.30, 0.05)]
+    best = recommend(sweep(samples, thresholds=[0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8], margins=[0.0]))
+    # 0.2 and 0.3 accept the stranger; 0.4-0.8 are all safe, so take the middle.
+    assert best.threshold == 0.6 and best.correct == 1 and best.employees == 1

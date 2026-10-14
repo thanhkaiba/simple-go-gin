@@ -35,9 +35,17 @@ class CameraConfig:
     enhance_low_light: bool = True
 
 
+DEFAULT_MODELS = {
+    "insightface": ("models/det_10g.onnx", "models/w600k_r50.onnx"),
+    "opencv": ("models/face_detection_yunet_2023mar.onnx", "models/face_recognition_sface_2021dec.onnx"),
+}
+
+
 @dataclass
 class RecognitionConfig:
-    model: str = "buffalo_l"
+    backend: str = "insightface"  # or "opencv"; see recognizer.py for the accuracy/licence trade-off
+    detector_model: str = ""  # empty: the backend's default file under models/
+    recognizer_model: str = ""
     det_size: int = 640
     use_gpu: bool = False
     # Quality gate: frames failing it never vote, they can only end up as "unknown".
@@ -52,6 +60,14 @@ class RecognitionConfig:
     votes_required: int = 3
     track_timeout_s: float = 1.5
     unknown_min_frames: int = 3
+
+    def model_files(self) -> tuple[str, str]:
+        default_det, default_rec = DEFAULT_MODELS.get(self.backend, ("", ""))
+        return self.detector_model or default_det, self.recognizer_model or default_rec
+
+    def model_id(self) -> str:
+        """Embeddings from different recognition models are not comparable, so they are stored per model."""
+        return Path(self.model_files()[1]).stem
 
 
 @dataclass
@@ -96,6 +112,8 @@ class Config:
         start, late, end = self.schedule.clocks()
         if not start < late <= end:
             raise ValueError("schedule must satisfy window_start < late_after <= window_end")
+        if self.recognition.backend not in DEFAULT_MODELS:
+            raise ValueError(f"recognition.backend must be one of {sorted(DEFAULT_MODELS)}")
         if any(d not in range(7) for d in self.schedule.work_days):
             raise ValueError("work_days must contain numbers 0 (Monday) to 6 (Sunday)")
         self.tz  # raises on an unknown time zone

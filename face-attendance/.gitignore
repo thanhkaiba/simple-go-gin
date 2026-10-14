@@ -6,3 +6,4 @@ employees.csv
 __pycache__/
 .venv/
 *.pyc
+models/

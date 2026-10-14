@@ -1,12 +1,14 @@
-"""Choose accept_score / min_margin from labelled photos.
+"""Compare recognition backends and choose accept_score / min_margin from labelled photos.
 
 Layout: <dir>/<employee_id>/*.jpg, plus optionally <dir>/_unknown/*.jpg for people who are
 not employees. With only --gallery, every photo is tested against all the other photos
-(leave-one-out). The recommendation is the setting with zero wrong identifications that
-accepts the most photos.
+(leave-one-out). The recommended setting is the one with zero wrong identifications that
+accepts the most employee photos, taken from the middle of the range of safe thresholds so
+it is not tuned to the edge of this particular set of photos.
 """
 from __future__ import annotations
 
+import dataclasses
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -15,7 +17,7 @@ import numpy as np
 from .gallery import Gallery
 
 UNKNOWN_DIR = "_unknown"
-THRESHOLDS = [round(x, 2) for x in np.arange(0.25, 0.76, 0.025)]
+THRESHOLDS = [round(float(x), 3) for x in np.arange(0.20, 0.76, 0.025)]
 MARGINS = [0.0, 0.04, 0.08, 0.12, 0.16]
 
 
@@ -31,13 +33,10 @@ class Sample:
 class Row:
     threshold: float
     margin: float
-    correct: int
-    wrong: int
+    correct: int  # employee photos given the right name
+    wrong: int  # given someone else's name (employee or stranger)
     rejected: int
-
-    @property
-    def total(self) -> int:
-        return self.correct + self.wrong + self.rejected
+    employees: int  # employee photos in the test set
 
 
 def score(gallery: Gallery, truth: str | None, embedding: np.ndarray) -> Sample:
@@ -59,14 +58,18 @@ def sweep(samples: list[Sample], thresholds=THRESHOLDS, margins=MARGINS) -> list
                     correct += 1
                 else:
                     wrong += 1
-            rows.append(Row(t, m, correct, wrong, rejected))
+            rows.append(Row(t, m, correct, wrong, rejected, sum(s.truth is not None for s in samples)))
     return rows
 
 
 def recommend(rows: list[Row]) -> Row | None:
     safe = [r for r in rows if r.wrong == 0 and r.correct > 0]
-    # Most accepted photos; on a tie take the stricter setting.
-    return max(safe, key=lambda r: (r.correct, r.threshold, r.margin)) if safe else None
+    if not safe:
+        return None
+    best = max(r.correct for r in safe)
+    margin = min(r.margin for r in safe if r.correct == best)
+    candidates = sorted((r for r in safe if r.correct == best and r.margin == margin), key=lambda r: r.threshold)
+    return candidates[len(candidates) // 2]
 
 
 def _embed_dir(recognizer, folder: Path) -> list[tuple[str | None, str, np.ndarray]]:
@@ -79,44 +82,64 @@ def _embed_dir(recognizer, folder: Path) -> list[tuple[str | None, str, np.ndarr
             image = read_image(path)
             face = recognizer.largest_face(image) if image is not None else None
             if face is None:
-                print(f"  - {person_dir.name}/{path.name}: không tìm thấy khuôn mặt")
+                print(f"  - {person_dir.name}/{path.name}: no face found")
                 continue
             out.append((truth, path.name, face.embedding))
     return out
 
 
-def evaluate(cfg, gallery_dir: Path, test_dir: Path | None) -> None:
-    from .recognizer import FaceRecognizer
-
-    recognizer = FaceRecognizer(cfg.recognition)
+def _samples(recognizer, gallery_dir: Path, test_dir: Path | None) -> list[Sample]:
     enrolled = [(t, n, e) for t, n, e in _embed_dir(recognizer, gallery_dir) if t is not None]
-    samples = []
     if test_dir is None:
-        print("Không có --test: thử từng ảnh với các ảnh còn lại (leave-one-out).")
+        samples = []
         for i, (truth, _, emb) in enumerate(enrolled):
             others = Gallery([(t, e) for j, (t, _, e) in enumerate(enrolled) if j != i])
             samples.append(score(others, truth, emb))
-    else:
-        gallery = Gallery([(t, e) for t, _, e in enrolled])
-        enrolled_names = {(t, n) for t, n, _ in enrolled}
-        for truth, name, emb in _embed_dir(recognizer, test_dir):
-            if (truth, name) in enrolled_names:
-                print(f"  ⚠ {truth}/{name} có ở cả gallery và test, kết quả sẽ đẹp hơn thực tế")
-            samples.append(score(gallery, truth, emb))
+        return samples
+    gallery = Gallery([(t, e) for t, _, e in enrolled])
+    enrolled_names = {(t, n) for t, n, _ in enrolled}
+    samples = []
+    for truth, name, emb in _embed_dir(recognizer, test_dir):
+        if (truth, name) in enrolled_names:
+            print(f"  ! {truth}/{name} is in both gallery and test sets; results will look better than reality")
+        samples.append(score(gallery, truth, emb))
+    return samples
 
-    rows = sweep(samples)
-    best = recommend(rows)
-    print(f"\n{len(samples)} ảnh thử, {sum(s.truth is None for s in samples)} ảnh người lạ.")
-    print(f"{'ngưỡng':>7} {'margin':>7} {'đúng':>6} {'SAI':>5} {'từ chối':>8}")
-    for r in rows:
-        if r.margin == (best.margin if best else 0.08):
-            print(f"{r.threshold:7.3f} {r.margin:7.2f} {r.correct:6d} {r.wrong:5d} {r.rejected:8d}")
-    if best is None:
-        print("\nKhông có ngưỡng nào tránh được nhận nhầm. Cần thêm/chọn lại ảnh mẫu.")
-        return
-    print(f"\nĐề xuất: accept_score: {best.threshold}  min_margin: {best.margin}")
-    print(f"  -> nhận đúng {best.correct}/{best.total} ảnh ({best.correct / best.total:.0%}), nhận nhầm 0, "
-          f"từ chối {best.rejected}.")
-    print("  Đây là kết quả trên từng ảnh đơn lẻ. Khi chạy thật, hệ thống cần nhiều khung hình cùng"
-          " đồng ý nên tỉ lệ nhận đúng mỗi lượt đi qua sẽ cao hơn.")
-    print("  Nên cộng thêm ~0.02 vào accept_score để có biên an toàn.")
+
+def evaluate(cfg, gallery_dir: Path, test_dir: Path | None, backends: list[str]) -> None:
+    from .recognizer import FaceRecognizer
+
+    if test_dir is None:
+        print("No --test folder: each photo is tested against all the other photos (leave-one-out).")
+    results = {}
+    for backend in backends:
+        rc = dataclasses.replace(cfg.recognition, backend=backend)
+        if backend != cfg.recognition.backend:
+            rc = dataclasses.replace(rc, detector_model="", recognizer_model="")
+        print(f"\n=== backend: {backend} ===")
+        samples = _samples(FaceRecognizer(rc, cfg.base_dir), gallery_dir, test_dir)
+        rows = sweep(samples)
+        best = recommend(rows)
+        results[backend] = best
+        print(f"{len(samples)} test photos, {sum(s.truth is None for s in samples)} of non-employees.")
+        margin = best.margin if best else 0.08
+        print(f"min_margin {margin}:  {'threshold':>9} {'recognised':>11} {'WRONG':>6} {'rejected':>9}")
+        for r in rows:
+            if r.margin == margin:
+                print(f"{'':17s}{r.threshold:9.3f} {r.correct:5d}/{r.employees:<5d} {r.wrong:6d} {r.rejected:9d}")
+        if best is None:
+            print("No setting avoids wrong identifications. Add or replace reference photos.")
+        else:
+            print(f"Recommended: accept_score: {best.threshold}  min_margin: {best.margin} -> "
+                  f"{best.correct}/{best.employees} employee photos recognised "
+                  f"({best.correct / max(best.employees, 1):.0%}), 0 wrong")
+
+    if len(results) > 1:
+        ranked = sorted(((b, r) for b, r in results.items() if r), key=lambda x: x[1].correct, reverse=True)
+        if len(ranked) > 1 and ranked[0][1].correct == ranked[1][1].correct:
+            print("\nThe backends did equally well on these photos; test with more, harder photos "
+                  "(dark, blurred, side views, masks) to tell them apart.")
+        elif ranked:
+            print(f"\nMost accurate on your photos: {ranked[0][0]}")
+    print("\nThese are single-photo results. Live, several frames must agree, so the per-visit accuracy is higher.")
+    print("Add about 0.02 to accept_score as a safety margin.")

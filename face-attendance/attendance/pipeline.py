@@ -26,7 +26,7 @@ def open_app(cfg: Config) -> tuple[Store, Gallery, AttendanceService]:
     data = cfg.path(cfg.data_dir)
     store = Store(data / "attendance.db")
     count = store.sync_employees(cfg.path(cfg.employees_file))
-    gallery = Gallery(store.embeddings())
+    gallery = Gallery(store.embeddings(cfg.recognition.model_id()))
     missing = [e for e in store.employees() if e not in gallery.counts()]
     log.info("%d employees, %d with enrolled faces", count, count - len(missing))
     if missing:
@@ -62,7 +62,7 @@ def run(cfg: Config) -> None:
                          name="web", daemon=True).start()
         log.info("Admin page on %s", cfg.web.public_url)
 
-    recognizer = FaceRecognizer(cfg.recognition)
+    recognizer = FaceRecognizer(cfg.recognition, cfg.base_dir)
     rc = cfg.recognition
     tracker = FaceTracker(rc.accept_score, rc.min_margin, rc.votes_required, rc.track_timeout_s, rc.unknown_min_frames)
     camera: Camera | None = None

@@ -29,7 +29,7 @@ class Clock:
 @pytest.fixture
 def env(tmp_path):
     csv = tmp_path / "employees.csv"
-    csv.write_text("id,name\nA,Anh A\nB,Anh B\nC,Chị C\n", encoding="utf-8")
+    csv.write_text("id,name\nA,Alice\nB,Bob\nC,Carol\n", encoding="utf-8")
     cfg = Config(employees_file=str(csv))
     cfg.web.public_url = "http://pc:8000"
     cfg.google_chat.webhook_url = "https://chat.googleapis.com/v1/spaces/X/messages?key=k&token=t"
@@ -58,7 +58,7 @@ def test_on_time_seen_again_after_deadline_is_not_late(env):
     rep = service.report(DAY)
     assert [a.employee_id for a in rep.on_time] == ["A"]
     assert rep.on_time[0].time == "09:15"
-    assert not any("Anh A" in m and "muộn" in m for m in sent)
+    assert not any("Alice" in m and "late" in m for m in sent)
 
 
 def test_not_seen_by_deadline_is_listed_then_late_arrival_announced(env):
@@ -69,19 +69,19 @@ def test_not_seen_by_deadline_is_listed_then_late_arrival_announced(env):
 
     deadline = [m for m in sent if m.startswith("⏰")]
     assert len(deadline) == 1
-    assert "2/3 người chưa thấy" in deadline[0]
-    assert "• Anh B" in deadline[0] and "• Chị C" in deadline[0] and "Anh A" not in deadline[0]
+    assert "2/3 people not seen yet" in deadline[0]
+    assert "• Bob" in deadline[0] and "• Carol" in deadline[0] and "Alice" not in deadline[0]
 
     clock.t = at(10, 23)
     service.on_identified("B", at(10, 23), 0.7, None)
-    assert sent[-1] == "🟠 *Anh B* đến lúc 10:23, muộn 23 phút."
+    assert sent[-1] == "🟠 *Bob* arrived at 10:23, 23 min late."
 
     run_until(service, clock, at(11, 1))
     summary = sent[-1]
     assert summary.startswith("📋")
-    assert "Đúng giờ: 1 · Đi muộn: 1 · Không thấy: 1" in summary
-    assert "• Anh B: 10:23 (muộn 23 phút)" in summary
-    assert "• Chị C" in summary
+    assert "On time: 1 · Late: 1 · Not seen: 1" in summary
+    assert "• Bob: 10:23 (23 min late)" in summary
+    assert "• Carol" in summary
 
 
 def test_notices_are_sent_once_even_after_restart(env, tmp_path):
@@ -100,18 +100,19 @@ def test_unknown_faces_are_batched_and_admin_can_resolve(env):
     service.on_unknown(at(9, 13), "y.jpg", vec, None, None)
     run_until(service, clock, at(9, 20))
     unknown_msgs = [m for m in sent if m.startswith("❓")]
-    assert len(unknown_msgs) == 1 and "2 khuôn mặt" in unknown_msgs[0] and "/unknowns" in unknown_msgs[0]
+    assert len(unknown_msgs) == 1 and "2 unidentified faces" in unknown_msgs[0] and "/unknowns" in unknown_msgs[0]
 
     run_until(service, clock, at(10, 5))
-    assert "Chị C" in [m for m in sent if m.startswith("⏰")][0]
+    assert "Carol" in [m for m in sent if m.startswith("⏰")][0]
 
     # Admin confirms the 9:12 face was C: on time, with a correction in the chat.
     service.resolve_unknown(uid, "C")
-    assert sent[-1] == "✅ Cập nhật: *Chị C* đã đến lúc 09:12 (admin xác nhận), không tính đi muộn."
+    assert sent[-1] == "✅ Update: *Carol* arrived at 09:12 (confirmed by admin), not late."
     rep = service.report(DAY)
     assert "C" in [a.employee_id for a in rep.on_time]
     assert service.gallery.counts() == {"C": 1}
-    assert store.embeddings()[0][0] == "C"
+    assert store.embeddings(service.model_id)[0][0] == "C"
+    assert store.embeddings("some-other-model") == []
     with pytest.raises(ValueError):
         service.resolve_unknown(uid, "C")
 
@@ -140,14 +141,14 @@ def test_camera_outage_is_reported(env):
     run_until(service, clock, at(9, 50), camera_ok=False)
     run_until(service, clock, at(10, 1))
     deadline = [m for m in sent if m.startswith("⏰")][0]
-    assert "không hoạt động: 09:30–09:50" in deadline
+    assert "was down: 09:30–09:50" in deadline
 
 
 def test_system_started_late_reports_the_gap(env):
     service, _, clock, sent = env
     clock.t = at(9, 40)  # PC switched on at 9:40
     run_until(service, clock, at(10, 1))
-    assert "không hoạt động: 09:00–09:40" in [m for m in sent if m.startswith("⏰")][0]
+    assert "was down: 09:00–09:40" in [m for m in sent if m.startswith("⏰")][0]
 
 
 def test_pc_off_all_morning_sends_only_summary_with_warning(env):
@@ -155,7 +156,7 @@ def test_pc_off_all_morning_sends_only_summary_with_warning(env):
     clock.t = at(14, 0)
     service.tick()
     assert len(sent) == 1 and sent[0].startswith("📋")
-    assert "không hoạt động: 09:00–11:00" in sent[0]
+    assert "was down: 09:00–11:00" in sent[0]
 
 
 def test_messages_use_one_thread_per_day(env):
