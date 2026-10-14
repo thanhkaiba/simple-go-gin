@@ -1,0 +1,7 @@
+insightface==0.7.3
+onnxruntime>=1.17
+opencv-python-headless>=4.9
+numpy>=1.26
+Flask>=3.0
+PyYAML>=6.0
+tzdata; sys_platform == "win32"

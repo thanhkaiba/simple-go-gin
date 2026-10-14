@@ -1,0 +1,47 @@
+# Copy to config.yaml and edit. Always quote times ("09:00"), otherwise YAML may misread them.
+timezone: Asia/Ho_Chi_Minh
+data_dir: data                 # database, face crops, logs
+employees_file: employees.csv  # columns: id,name
+healthcheck_url: ""            # e.g. https://hc-ping.com/<uuid>; pinged every minute so you get an alert if this PC stops
+
+schedule:
+  window_start: "09:00"   # camera starts. People arriving earlier are only counted if they pass the camera again after this time.
+  late_after: "10:00"     # first seen before this = on time; not seen by then = late
+  window_end: "11:00"     # camera stops, daily summary is sent
+  work_days: [0, 1, 2, 3, 4]  # 0 = Monday ... 6 = Sunday
+
+camera:
+  # Ezviz: rtsp://admin:<6-letter verification code on the camera label>@<camera IP>:554/H.264
+  url: "rtsp://admin:ABCDEF@192.168.1.64:554/H.264"
+  process_fps: 5          # frames analysed per second; lower it if the CPU cannot keep up
+  enhance_low_light: true
+
+recognition:
+  model: buffalo_l        # most accurate InsightFace model pack
+  det_size: 640
+  use_gpu: false
+  # A frame only votes if the face is big, sharp and roughly frontal enough:
+  min_face_px: 60
+  min_det_score: 0.65
+  min_sharpness: 40
+  max_yaw: 35
+  max_pitch: 30
+  # Identification. Tune these two with: python -m attendance evaluate
+  accept_score: 0.45      # cosine similarity needed for a frame to vote for a person
+  min_margin: 0.08        # and it must beat the second most similar person by this much
+  votes_required: 3       # frames that must agree before a person is identified
+  track_timeout_s: 1.5
+  unknown_min_frames: 3   # faces seen in fewer frames than this are ignored instead of reported
+
+google_chat:
+  webhook_url: ""         # Space -> Apps & integrations -> Webhooks -> Add webhook
+  notify_late_arrivals: true
+  unknown_batch_minutes: 5   # group unknown-face notices instead of one message per face
+
+web:
+  enabled: true
+  host: 0.0.0.0
+  port: 8000
+  public_url: "http://192.168.1.10:8000"  # address the admin opens; used for links in Google Chat
+  username: admin
+  password: ""            # set one, otherwise anyone on the network can open the page

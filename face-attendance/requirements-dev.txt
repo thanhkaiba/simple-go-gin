@@ -1,0 +1,6 @@
+# Enough to run the tests; they do not need InsightFace or OpenCV.
+numpy>=1.26
+Flask>=3.0
+PyYAML>=6.0
+pytest>=8.0
+tzdata; sys_platform == "win32"
