@@ -7,6 +7,7 @@ WORKDIR /go/src/decode
 ENV PORT=8080
 
 COPY main.go .
+COPY attendance ./attendance
 COPY go.mod .
 COPY vendor ./vendor
 
