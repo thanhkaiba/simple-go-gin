@@ -106,7 +106,7 @@ Then open **http://localhost:8000**, or `http://<computer IP>:8000` from another
 ## 2. First-time setup (on the admin page)
 
 1. **Settings:**
-   - **Camera address:** for Ezviz, `rtsp://admin:<VERIFICATION_CODE>@<CAMERA_IP>:554/H.264`. The code is the 6 capital letters on the camera label; first enable RTSP / LAN Live View in the EZVIZ app if your model has it. Give the camera a fixed IP in the router.
+   - **Camera address:** for Ezviz, `rtsp://admin:<VERIFICATION_CODE>@<CAMERA_IP>:554/Streaming/Channels/101` (the main, full-resolution stream; `.../102` is the low-resolution sub stream, and some models use `.../H.264` instead). The code is the 6 capital letters on the camera label; first enable RTSP / LAN Live View in the EZVIZ app if your model has it. Give the camera a fixed IP in the router.
    - **Working hours** and **work days**.
    - **Google Chat webhook:** in the space, open the space name → *Apps & integrations* → *Webhooks* → *Add webhook*. Then click **Send a test message**.
    - **Address of this page:** used for links in chat messages.
