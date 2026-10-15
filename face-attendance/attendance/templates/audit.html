@@ -1,11 +1,27 @@
 {% extends "base.html" %}
 {% block body %}
-<h1>Change log</h1>
-<p class="muted">Every change made on this page: corrections, confirmations, photos, employees and settings.</p>
-<div class="table-wrap"><table>
-  <tr><th>When</th><th>Who</th><th>What</th><th>Details</th></tr>
-  {% for ts, who, action, details in rows %}
-  <tr><td>{{ local(ts).strftime('%Y-%m-%d %H:%M') }}</td><td>{{ who }}</td><td>{{ action }}</td><td>{{ details }}</td></tr>
-  {% else %}<tr><td colspan="4" class="muted">No changes yet.</td></tr>{% endfor %}
-</table></div>
+<div class="page-head">
+  <div><h1>Change log</h1><p class="subtitle">Every change made on this page: corrections, confirmations, photos, employees and settings.</p></div>
+  <input type="search" id="search" placeholder="Search…">
+</div>
+<div class="table-wrap">
+  <table id="log">
+    <thead><tr><th>When</th><th>Who</th><th>What</th><th>Details</th></tr></thead>
+    <tbody>
+    {% for ts, who, action, details in rows %}
+      <tr><td class="small" style="white-space:nowrap">{{ local(ts).strftime('%d %b %Y %H:%M') }}</td><td>{{ who }}</td>
+        <td><span class="badge info">{{ action }}</span></td><td>{{ details }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% if not rows %}<div class="empty-state">No changes yet.</div>{% endif %}
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+  document.getElementById('search').addEventListener('input', e => {
+    const q = e.target.value.trim().toLowerCase();
+    document.querySelectorAll('#log tbody tr').forEach(tr => tr.hidden = q && !tr.textContent.toLowerCase().includes(q));
+  });
+</script>
 {% endblock %}

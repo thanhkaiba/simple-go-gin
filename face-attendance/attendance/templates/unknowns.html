@@ -1,24 +1,42 @@
 {% extends "base.html" %}
 {% block body %}
-<h1>Unidentified faces</h1>
-<p class="muted">Pick the right person to record their arrival at the time of the photo. The face is also added to
-  their reference photos, so they are recognised next time. Use <em>Ignore</em> for visitors.</p>
-<div class="grid">
-{% for u in items %}
-  <div class="card">
-    {% if u.image %}<a href="{{ url_for('media', path=u.image) }}" target="_blank"><img src="{{ url_for('media', path=u.image) }}" alt=""></a>{% endif %}
-    <div>{{ local(u.ts).strftime('%Y-%m-%d %H:%M:%S') }}</div>
-    {% if u.guess_id %}<div class="muted">Closest match: {{ employees.get(u.guess_id, u.guess_id) }} ({{ '%.2f'|format(u.guess_score) }})</div>{% endif %}
-    <form method="post" action="{{ url_for('assign', unknown_id=u.id) }}">
-      <select name="employee_id" style="width:100%">
-        {% for id, name in employees.items() %}<option value="{{ id }}" {{ 'selected' if id == u.guess_id }}>{{ name }}</option>{% endfor %}
-      </select>
-      <button class="primary" style="width:100%; margin-top:4px">Confirm this person</button>
-    </form>
-    <form method="post" action="{{ url_for('ignore', unknown_id=u.id) }}"><button style="width:100%; margin-top:4px">Ignore</button></form>
+<div class="page-head">
+  <div>
+    <h1>Faces to review</h1>
+    <p class="subtitle">The camera was not sure who these people are. Confirming records their arrival at the photo time
+      and teaches the system their face.</p>
   </div>
-{% else %}
-  <p>Nothing to review.</p>
-{% endfor %}
 </div>
+{% if items %}
+<div class="tiles" style="grid-template-columns: repeat(auto-fill, minmax(240px, 1fr))">
+  {% for u in items %}
+  <div class="card" style="margin:0; padding:0; overflow:hidden">
+    {% if u.image %}<a href="{{ url_for('media', path=u.image) }}" target="_blank"><img src="{{ url_for('media', path=u.image) }}" alt="" style="width:100%; aspect-ratio: 1; object-fit: cover; display:block"></a>{% endif %}
+    <div style="padding:12px; display:grid; gap:8px">
+      <div><strong>{{ local(u.ts).strftime('%H:%M') }}</strong> <span class="muted small">{{ local(u.ts).strftime('%a %d %b') }}</span></div>
+      {% set guess = employees.get(u.guess_id) if u.guess_id else None %}
+      {% if guess %}
+        <div class="small muted">Looks like {{ guess }} ({{ '%.0f'|format(u.guess_score * 100) }}% match)</div>
+        <form method="post" action="{{ url_for('assign', unknown_id=u.id) }}">
+          <input type="hidden" name="employee_id" value="{{ u.guess_id }}">
+          <button class="primary" style="width:100%; justify-content:center">✓ It's {{ guess }}</button>
+        </form>
+      {% endif %}
+      <form method="post" action="{{ url_for('assign', unknown_id=u.id) }}" class="form-row" style="gap:6px">
+        <select name="employee_id" required style="flex:1; min-width:0">
+          <option value="">{{ 'Someone else…' if guess else 'Who is this?' }}</option>
+          {% for id, name in employees.items() if id != u.guess_id %}<option value="{{ id }}">{{ name }}</option>{% endfor %}
+        </select>
+        <button{% if not guess %} class="primary"{% endif %}>Confirm</button>
+      </form>
+      <form method="post" action="{{ url_for('ignore', unknown_id=u.id) }}">
+        <button style="width:100%; justify-content:center" class="btn-sm">Not an employee (ignore)</button>
+      </form>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="card empty-state">✓ Nothing to review.</div>
+{% endif %}
 {% endblock %}

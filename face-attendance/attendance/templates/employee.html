@@ -1,53 +1,112 @@
 {% extends "base.html" %}
 {% block body %}
-<p><a href="{{ url_for('employees') }}">← Employees</a></p>
-<h1>{{ person.name }} <span class="muted">({{ person.id }})</span></h1>
-
-<div class="card">
-  <form method="post" action="{{ url_for('update_employee', employee_id=person.id) }}" class="row">
-    <label>Name<input name="name" value="{{ person.name }}" required></label>
-    <label style="flex-direction:row; align-items:center; gap:6px"><input type="checkbox" name="active" {{ 'checked' if person.active }}> Active (tracked by the camera)</label>
-    <button class="primary">Save</button>
-  </form>
-</div>
-
-<h2>Reference photos ({{ refs|length }})</h2>
-<p class="muted">Upload 5–10 clear photos: looking straight, slightly left and right, with and without glasses, and one
-  with a mask if they often wear one. Frames from the door camera itself work best.</p>
-<div class="card">
-  <form method="post" action="{{ url_for('upload_photos', employee_id=person.id) }}" enctype="multipart/form-data" class="row">
-    <label>Photos<input type="file" name="photos" accept="image/*" multiple required></label>
-    <button class="primary">Upload</button>
-  </form>
-</div>
-<div class="grid">
-  {% for r in refs %}
-  <div class="card">
-    {% if r.image %}<img src="{{ url_for('media', path=r.image) }}" alt="">{% else %}<div class="muted">(no image)</div>{% endif %}
-    <div class="muted">{{ {'upload': 'Uploaded', 'enroll': 'From folder', 'admin': 'Confirmed by admin'}.get(r.source.split(':')[0], r.source) }}</div>
-    <form method="post" action="{{ url_for('delete_photo', employee_id=person.id) }}" onsubmit="return confirm('Delete this photo?')">
-      <input type="hidden" name="{{ 'image' if r.image else 'ref_id' }}" value="{{ r.image or r.id }}">
-      <button class="danger" style="width:100%">Delete</button>
-    </form>
+<p style="margin:0 0 8px"><a href="{{ url_for('employees') }}">← All employees</a></p>
+<div class="page-head">
+  <div>
+    <h1>{{ person.name }}</h1>
+    <p class="subtitle">{{ person.id }} ·
+      {% if not person.active %}<span class="badge info">Not tracked</span>
+      {% elif refs|length == 0 %}<span class="badge bad">Cannot be recognised yet</span>
+      {% elif refs|length < 5 %}<span class="badge late">{{ refs|length }} photos · add more</span>
+      {% else %}<span class="badge ok">Ready · {{ refs|length }} photos</span>{% endif %}</p>
   </div>
-  {% else %}
-  <p class="bad">No photos yet: this person cannot be recognised.</p>
-  {% endfor %}
 </div>
 
-<h2>Upcoming leave <span class="muted">(from the HR system)</span></h2>
-<table>
-  {% for l in leaves %}<tr><td>{{ l.start }}{% if l.end != l.start %} – {{ l.end }}{% endif %}</td><td>{{ leave_label(l.kind) }}</td><td class="muted">{{ l.note }}</td></tr>
-  {% else %}<tr><td class="muted">None.</td></tr>{% endfor %}
-</table>
+<div style="display:grid; grid-template-columns: minmax(0, 2fr) minmax(260px, 1fr); gap:16px" class="split">
+  <div>
+    <div class="card">
+      <h2>Reference photos</h2>
+      <form method="post" action="{{ url_for('upload_photos', employee_id=person.id) }}" enctype="multipart/form-data" id="upload">
+        <label id="drop" style="display:block; border:2px dashed #cbd5e1; border-radius:10px; padding:22px; text-align:center; cursor:pointer; background:#f9fafb">
+          <input type="file" name="photos" id="photos" accept="image/*" multiple required hidden>
+          <div style="font-size:1.6em">📷</div>
+          <strong>Drop photos here or click to choose</strong>
+          <div class="hint">5–10 clear photos: looking straight, slightly left and right, with and without glasses.
+            Frames from the door camera work best.</div>
+        </label>
+        <div id="preview" class="tiles" style="grid-template-columns: repeat(auto-fill, minmax(90px, 1fr)); margin:12px 0 0"></div>
+        <div id="upload-bar" hidden style="margin-top:10px"><button class="primary" id="upload-btn">Upload</button>
+          <button type="button" onclick="clearFiles()">Cancel</button></div>
+      </form>
+    </div>
 
-<h2 class="bad">Delete permanently</h2>
-<div class="card">
-  <p>Deletes this employee, their reference photos and face data (past attendance records are kept).
-    To stop tracking someone temporarily, untick <em>Active</em> instead.</p>
-  <form method="post" action="{{ url_for('delete_employee', employee_id=person.id) }}" class="row">
-    <label><span>Type <code>{{ person.id }}</code> to confirm</span><input name="confirm" required></label>
-    <button class="danger">Delete employee</button>
-  </form>
+    {% if refs %}
+    <div class="tiles" style="grid-template-columns: repeat(auto-fill, minmax(140px, 1fr))">
+      {% for r in refs %}
+      <div class="card" style="margin:0; padding:0; overflow:hidden">
+        {% if r.image %}<img src="{{ url_for('media', path=r.image) }}" alt="" style="width:100%; aspect-ratio:1; object-fit:cover; display:block">
+        {% else %}<div class="empty-state" style="aspect-ratio:1">No image</div>{% endif %}
+        <div style="padding:8px; display:flex; justify-content:space-between; align-items:center; gap:6px">
+          <span class="small muted">{{ {'upload': 'Uploaded', 'enroll': 'From folder', 'admin': 'Confirmed'}.get(r.source.split(':')[0], r.source) }}</span>
+          <form method="post" action="{{ url_for('delete_photo', employee_id=person.id) }}" onsubmit="return confirm('Delete this photo?')">
+            <input type="hidden" name="{{ 'image' if r.image else 'ref_id' }}" value="{{ r.image or r.id }}">
+            <button class="danger btn-sm" title="Delete photo">Delete</button>
+          </form>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+
+  <div>
+    <div class="card">
+      <h2>Details</h2>
+      <form method="post" action="{{ url_for('update_employee', employee_id=person.id) }}" style="display:grid; gap:12px">
+        <label class="field">Full name<input name="name" value="{{ person.name }}" required></label>
+        <label class="check"><input type="checkbox" name="active" {{ 'checked' if person.active }}> Tracked by the camera</label>
+        <span class="hint">Untick for people who left or are away for a long time; their data is kept.</span>
+        <div><button class="primary">Save</button></div>
+      </form>
+    </div>
+
+    <div class="card">
+      <h2>Upcoming leave</h2>
+      {% for l in leaves %}
+        <div style="display:flex; justify-content:space-between; gap:8px; padding:4px 0">
+          <span>{{ l.start.strftime('%d %b') }}{% if l.end != l.start %} – {{ l.end.strftime('%d %b') }}{% endif %}</span>
+          <span class="badge info">{{ leave_label(l.kind) }}</span></div>
+      {% else %}<p class="muted" style="margin:0">None.</p>{% endfor %}
+      <p class="hint" style="margin-bottom:0">From the HR system.</p>
+    </div>
+
+    <details class="panel">
+      <summary style="color: var(--bad)">Delete this employee</summary>
+      <div>
+        <p class="small">Deletes {{ person.name }}, their photos and face data. Past attendance records are kept.</p>
+        <form method="post" action="{{ url_for('delete_employee', employee_id=person.id) }}" style="display:grid; gap:8px">
+          <label class="field">Type <strong>{{ person.id }}</strong> to confirm<input name="confirm" required autocomplete="off"></label>
+          <div><button class="danger">Delete permanently</button></div>
+        </form>
+      </div>
+    </details>
+  </div>
 </div>
+<style>@media (max-width: 800px) { .split { grid-template-columns: 1fr !important; } }</style>
+{% endblock %}
+{% block scripts %}
+<script>
+  const input = document.getElementById('photos'), drop = document.getElementById('drop');
+  const preview = document.getElementById('preview'), bar = document.getElementById('upload-bar');
+  function showFiles() {
+    preview.innerHTML = '';
+    for (const f of input.files) {
+      const img = document.createElement('img');
+      img.src = URL.createObjectURL(f);
+      img.style.cssText = 'width:100%; aspect-ratio:1; object-fit:cover; border-radius:8px';
+      img.title = f.name;
+      preview.appendChild(img);
+    }
+    bar.hidden = input.files.length === 0;
+    document.getElementById('upload-btn').textContent = `Upload ${input.files.length} photo${input.files.length === 1 ? '' : 's'}`;
+  }
+  function clearFiles() { input.value = ''; showFiles(); }
+  input.addEventListener('change', showFiles);
+  ['dragenter', 'dragover'].forEach(e => drop.addEventListener(e, ev => { ev.preventDefault(); drop.style.borderColor = '#2563eb'; }));
+  ['dragleave', 'drop'].forEach(e => drop.addEventListener(e, ev => { ev.preventDefault(); drop.style.borderColor = '#cbd5e1'; }));
+  drop.addEventListener('drop', ev => { input.files = ev.dataTransfer.files; showFiles(); });
+  document.getElementById('upload').addEventListener('submit', () => {
+    const b = document.getElementById('upload-btn'); b.disabled = true; b.textContent = 'Checking faces…';
+  });
+</script>
 {% endblock %}

@@ -1,46 +1,80 @@
 {% extends "base.html" %}
 {% block body %}
-<div class="row" style="justify-content: space-between">
-  <h1>Late &amp; absence report</h1>
-  <form class="inline">
-    <input type="date" name="start" value="{{ start.isoformat() }}"> – <input type="date" name="end" value="{{ end.isoformat() }}">
+<div class="page-head">
+  <div>
+    <h1>Late &amp; absence report</h1>
+    <p class="subtitle">{{ start.strftime('%d %b %Y') }} – {{ rep.end.strftime('%d %b %Y') }} · {{ rep.days|length }} work days</p>
+  </div>
+  <div class="btn-group">
+    <a class="btn" href="{{ url_for('report_summary_csv', start=start.isoformat(), end=end.isoformat()) }}">⬇ Summary (Excel CSV)</a>
+    <a class="btn" href="{{ url_for('report_details_csv', start=start.isoformat(), end=end.isoformat()) }}">⬇ Every day (Excel CSV)</a>
+  </div>
+</div>
+
+<div class="card form-row" style="justify-content: space-between">
+  <div class="btn-group">
+    {% for label, a, b in ranges %}
+      <a class="btn btn-sm{{ ' btn-primary' if a == start and b == end }}" href="{{ url_for('report', start=a.isoformat(), end=b.isoformat()) }}">{{ label }}</a>
+    {% endfor %}
+  </div>
+  <form class="btn-group" method="get">
+    <input type="date" name="start" value="{{ start.isoformat() }}"> to <input type="date" name="end" value="{{ end.isoformat() }}">
     <button>Show</button>
   </form>
 </div>
-<p class="muted">{{ rep.days|length }} work days from {{ start.isoformat() }} to {{ rep.end.isoformat() }}
-  (holidays and non-working days are skipped; today is included once the late time has passed).
-  People on leave are not counted as late or not seen.</p>
-<p>
-  <a href="{{ url_for('report_summary_csv', start=start.isoformat(), end=end.isoformat()) }}">Download summary (CSV)</a> ·
-  <a href="{{ url_for('report_details_csv', start=start.isoformat(), end=end.isoformat()) }}">Download every day (CSV)</a>
-</p>
-{% if rep.no_data_days %}<div class="warn">⚠️ No camera data on {{ rep.no_data_days|length }} work day(s) (system not running yet,
-  or the computer was off). Nobody is counted as "not seen" on those days; entered arrivals still count.</div>{% endif %}
-{% set outage_days = rep.days|rejectattr('no_camera_data')|selectattr('outages')|list %}
-{% if outage_days %}<div class="warn">⚠️ The camera or computer was down on {{ outage_days|length }} of these days
-  ({% for d in outage_days %}<a href="{{ url_for('index', day=d.day.isoformat()) }}">{{ d.day.isoformat() }}</a>{{ ', ' if not loop.last }}{% endfor %}).
-  "Not seen" on those days may not mean absent.</div>{% endif %}
 
-<div class="table-wrap"><table>
-  <tr><th>Employee</th><th>Work days</th><th class="ok">On time</th><th class="late">Late</th><th class="late">Minutes late</th>
-      <th class="bad">Not seen</th><th class="muted">On leave</th></tr>
-  {% for p in rep.people %}
-  <tr><td>{{ p.name }} <span class="muted">{{ p.employee_id }}</span></td><td>{{ p.work_days }}</td><td>{{ p.on_time }}</td>
-      <td class="{{ 'late' if p.late }}">{{ p.late }}</td><td class="{{ 'late' if p.late_minutes }}">{{ p.late_minutes }}</td>
-      <td class="{{ 'bad' if p.not_seen }}">{{ p.not_seen }}</td><td class="muted">{{ p.on_leave }}</td></tr>
-  {% else %}<tr><td colspan="7" class="muted">No work days in this period.</td></tr>{% endfor %}
-</table></div>
+{% if rep.no_data_days %}<div class="alert warn">⚠️ <span>No camera data on {{ rep.no_data_days|length }} work day(s) (system not running
+  or computer off). Nobody is counted as "not seen" on those days; entered arrivals still count.</span></div>{% endif %}
+{% set outage_days = rep.days|rejectattr('no_camera_data')|selectattr('outages')|list %}
+{% if outage_days %}<div class="alert warn">⚠️ <span>The camera was down for part of
+  {% for d in outage_days %}<a href="{{ url_for('index', day=d.day.isoformat()) }}">{{ d.day.strftime('%d %b') }}</a>{{ ', ' if not loop.last }}{% endfor %};
+  "not seen" on those days may not mean absent.</span></div>{% endif %}
+
+{% set total_late = rep.people|sum(attribute='late') %}
+{% set total_minutes = rep.people|sum(attribute='late_minutes') %}
+{% set total_not_seen = rep.people|sum(attribute='not_seen') %}
+<div class="tiles">
+  <div class="tile late"><div class="n">{{ total_late }}</div><div class="l">Late arrivals</div></div>
+  <div class="tile late"><div class="n">{{ total_minutes }}</div><div class="l">Minutes late in total</div></div>
+  <div class="tile bad"><div class="n">{{ total_not_seen }}</div><div class="l">Days not seen</div></div>
+  <div class="tile info"><div class="n">{{ rep.people|sum(attribute='on_leave') }}</div><div class="l">Days on leave</div></div>
+</div>
+
+<h2>By employee</h2>
+<div class="table-wrap" style="margin-bottom:20px">
+  <table>
+    <thead><tr><th>Employee</th><th class="num">Work days</th><th class="num">On time</th><th class="num">Late</th>
+      <th class="num">Minutes late</th><th class="num">Not seen</th><th class="num">On leave</th></tr></thead>
+    <tbody>
+    {% for p in rep.people %}
+      <tr><td><strong>{{ p.name }}</strong> <span class="small muted">{{ p.employee_id }}</span></td>
+        <td class="num">{{ p.work_days }}</td><td class="num">{{ p.on_time }}</td>
+        <td class="num">{% if p.late %}<span class="badge late">{{ p.late }}</span>{% else %}0{% endif %}</td>
+        <td class="num">{{ p.late_minutes or 0 }}</td>
+        <td class="num">{% if p.not_seen %}<span class="badge bad">{{ p.not_seen }}</span>{% else %}0{% endif %}</td>
+        <td class="num muted">{{ p.on_leave }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% if not rep.people %}<div class="empty-state">No work days in this period.</div>{% endif %}
+</div>
 
 {% if rep.days %}
-<h2>Day by day</h2>
-<div class="table-wrap"><table>
-  <tr><th>Date</th><th class="late">Late</th><th class="bad">Not seen</th><th class="muted">On leave</th></tr>
-  {% for d in rep.days|reverse %}
-  <tr><td><a href="{{ url_for('index', day=d.day.isoformat()) }}">{{ d.day.isoformat() }} ({{ WEEKDAYS[d.day.weekday()] }})</a>{% if d.outages %} ⚠️{% endif %}</td>
-      <td>{% for a in d.late %}{{ a.name }} {{ a.time }}{{ ', ' if not loop.last }}{% endfor %}</td>
-      <td>{% if d.no_camera_data %}<span class="muted">no camera data</span>{% else %}{% for id, name in d.not_seen %}{{ name }}{{ ', ' if not loop.last }}{% endfor %}{% endif %}</td>
-      <td class="muted">{{ d.on_leave|length or '' }}</td></tr>
-  {% endfor %}
-</table></div>
+<details class="panel" open>
+  <summary>Day by day</summary>
+  <div class="table-wrap" style="box-shadow:none">
+    <table>
+      <thead><tr><th>Date</th><th>Late</th><th>Not seen</th><th class="num">On leave</th></tr></thead>
+      <tbody>
+      {% for d in rep.days|reverse %}
+        <tr><td><a href="{{ url_for('index', day=d.day.isoformat()) }}">{{ WEEKDAYS[d.day.weekday()] }} {{ d.day.strftime('%d %b') }}</a>{% if d.outages and not d.no_camera_data %} ⚠️{% endif %}</td>
+          <td>{% for a in d.late %}{{ a.name }} <span class="muted small">{{ a.time }}</span>{{ ', ' if not loop.last }}{% else %}<span class="muted">–</span>{% endfor %}</td>
+          <td>{% if d.no_camera_data %}<span class="badge info">No camera data</span>{% else %}{% for id, name in d.not_seen %}{{ name }}{{ ', ' if not loop.last }}{% else %}<span class="muted">–</span>{% endfor %}{% endif %}</td>
+          <td class="num muted">{{ d.on_leave|length or '' }}</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</details>
 {% endif %}
 {% endblock %}

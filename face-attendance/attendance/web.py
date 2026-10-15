@@ -94,11 +94,13 @@ def create_app(core: "App") -> Flask:
 
     @app.get("/")
     def index():
-        day = _date(request.args.get("day"), service.now().date())
+        today = service.now().date()
+        day = _date(request.args.get("day"), today)
         rep = service.report(day)
         return render_template("index.html", rep=rep, employees=store.employees(),
-                               late=lambda a: minutes_late(a, rep.window), today=service.now().date(),
-                               leave=leave_status())
+                               late=lambda a: minutes_late(a, rep.window), today=today,
+                               prev_day=day - dt.timedelta(days=1), next_day=day + dt.timedelta(days=1),
+                               leave=leave_status(), started=service.now() >= rep.window.start)
 
     @app.post("/day/<day>/<employee_id>/set")
     def set_arrival(day: str, employee_id: str):
@@ -282,7 +284,13 @@ def create_app(core: "App") -> Flask:
     @app.get("/report")
     def report():
         start, end = _period()
-        return render_template("report.html", rep=service.period_report(start, end), start=start, end=end)
+        today = service.now().date()
+        first = today.replace(day=1)
+        last_month_end = first - dt.timedelta(days=1)
+        ranges = [("This month", first, today), ("Last month", last_month_end.replace(day=1), last_month_end),
+                  ("Last 7 days", today - dt.timedelta(days=6), today), ("Last 30 days", today - dt.timedelta(days=29), today)]
+        return render_template("report.html", rep=service.period_report(start, end), start=start, end=end,
+                               ranges=ranges)
 
     def _csv(name: str, header: list[str], rows) -> Response:
         out = io.StringIO()
@@ -385,10 +393,12 @@ def create_app(core: "App") -> Flask:
 
     @app.post("/settings/test-chat")
     def test_chat():
-        if not cfg.google_chat.webhook_url:
-            return failed("Save a Google Chat webhook URL first.", "settings_page")
+        # Test the address typed in the form, so it can be checked before saving.
+        url = (request.form.get("google_chat.webhook_url") or cfg.google_chat.webhook_url).strip()
+        if not url:
+            return failed("Enter a Google Chat webhook URL first.", "settings_page")
         try:
-            core.chat.send_now("✅ The attendance system can post to this space.")
+            core.chat.send_now("✅ The attendance system can post to this space.", url)
         except Exception as exc:
             return failed(f"Sending failed: {exc}", "settings_page")
         return done("Test message sent; check Google Chat.", "settings_page")

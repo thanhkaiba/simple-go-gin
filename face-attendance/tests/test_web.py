@@ -24,10 +24,10 @@ def test_pages_render_and_admin_can_assign_unknown(core):
     c = client(app)
 
     page = c.get("/").get_data(as_text=True)
-    assert "Alice" in page and "09:05" in page and "Not seen: 2" in page
+    assert "Alice" in page and "09:05" in page and page.count('data-status="not_seen"') == 2
 
     page = c.get("/unknowns").get_data(as_text=True)
-    assert "Closest match: Bob" in page
+    assert "Looks like Bob" in page and "It's Bob" in page
 
     resp = c.post(f"/unknowns/{uid}/assign", data={"employee_id": "B"})
     assert resp.status_code == 302
@@ -57,7 +57,7 @@ def test_employee_management_and_photo_upload(core):
     c = client(app)
     resp = c.post("/employees", data={"id": "D", "name": "Dan"}, follow_redirects=True)
     assert "Employee added" in resp.get_data(as_text=True)
-    assert "none: cannot be recognised" in c.get("/employees").get_data(as_text=True)
+    assert "No photos" in c.get("/employees").get_data(as_text=True)
 
     resp = c.post("/employees/D/photos", data={"photos": [(io.BytesIO(png(face_image(4))), "d1.png"),
                                                           (io.BytesIO(png(face_image(0))), "empty.png"),
@@ -177,5 +177,23 @@ def test_leave_refresh_button(core):
     app.cfg.leave_api.url = "https://hr/api"
     app.leave_sync._fetch = lambda url, token: {"leaves": [{"employee_id": "A", "start": str(DAY)}]}
     page = c.post("/leave/sync", data={"back": f"/?day={DAY}"}, follow_redirects=True).get_data(as_text=True)
-    assert "Leave data updated" in page and "On leave: 1" in page
+    assert "Leave data updated" in page and page.count('data-status="on_leave"') == 1
     assert c.post("/leave/sync", data={"back": "//evil.example"}).headers["Location"] == "/"
+
+
+def test_settings_test_message_uses_the_typed_webhook(core):
+    app, _, sent = core
+    urls = []
+    app.chat._post = lambda url, payload: urls.append(url)
+    c = client(app)
+    resp = c.post("/settings/test-chat", data={"google_chat.webhook_url": "https://typed.example/hook"}, follow_redirects=True)
+    assert "Test message sent" in resp.get_data(as_text=True) and urls == ["https://typed.example/hook"]
+
+
+def test_pages_have_day_navigation_and_report_ranges(core):
+    app, clock, _ = core
+    c = client(app)
+    page = c.get(f"/?day={DAY}").get_data(as_text=True)
+    assert "/?day=2026-10-13" in page and "/?day=2026-10-15" in page
+    report = c.get("/report").get_data(as_text=True)
+    assert "This month" in report and "Last month" in report and "start=2026-09-01" in report

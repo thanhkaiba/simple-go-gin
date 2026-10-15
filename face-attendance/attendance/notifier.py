@@ -49,9 +49,9 @@ class GoogleChat:
         self.store.enqueue(payload, now)
         self.flush(now)
 
-    def send_now(self, text: str) -> None:
+    def send_now(self, text: str, url: str | None = None) -> None:
         """Send directly, raising on failure; used to test the webhook."""
-        self._post(self.webhook_url, {"text": text})
+        self._post(url or self.webhook_url, {"text": text})
 
     def flush(self, now: dt.datetime) -> None:
         """Deliver queued messages in order; stop at the first failure and retry on the next call."""

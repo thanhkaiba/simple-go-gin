@@ -117,15 +117,28 @@ Then open **http://localhost:8000**, or `http://<computer IP>:8000` from another
 
 ## 3. Daily use
 
-- **Attendance:** who is on time, late, not seen or on leave, with photos; pick a date to see past days. Every row can be corrected:
-  - **Change time / Add arrival:** enter an arrival by hand, e.g. someone who missed the camera.
-  - **Wrong person? It was… → Move:** the camera recorded the wrong person; the time and photo move to the right one.
-  - **Delete:** remove a wrong arrival.
-- **Late & absence report:** pick a period to see, per employee, the work days, on-time and late days, total minutes late, days not seen and days on leave, plus a day-by-day list.
+The menu at the top has everything:
+
+- **Today:** everyone's status for the day.
+  - **Tiles** (Late, Not seen, On time, On leave) show the counts. Click one to show only those people; type in the search box to find someone.
+  - **‹ ›** move to the previous or next day; the date box jumps to any day.
+  - The page refreshes itself every minute while it shows today.
+  - **Correcting:** click a person (or their *Edit* button) to open a small window where you can:
+    - **change or add the arrival time**, e.g. someone who missed the camera;
+    - **fix a wrong person** ("Recorded the wrong person? It was…"): the arrival and its photo move to the right person;
+    - **delete** a wrong arrival.
+- **Late & absence report:** totals per employee for a period: work days, on time, late, minutes late, not seen, on leave, plus a day-by-day list.
+  - Quick buttons choose this month, last month, the last 7 or 30 days.
   - Download a **summary CSV** or a **CSV with every day**; both open in Excel.
   - Days when the camera did not work are flagged and not counted as absences.
-- **Unidentified:** faces the system was not sure about. Pick the right person and the arrival is recorded at the photo time; the face is also added to their reference photos, so they are recognised next time. *Ignore* is for visitors.
-- **Change log:** every change made on the page (corrections, confirmations, photos, employees, settings), with who made it and when.
+- **To review** (red number = how many): faces the camera was not sure about.
+  - **"✓ It's …"** confirms the suggested person in one click, or pick someone else from the list.
+  - Confirming records the arrival at the photo time and teaches the system that face.
+  - *Not an employee* hides visitors.
+- **Employees:** search, add, or import from CSV. Open a person to drag and drop their photos (with a preview before uploading), see their upcoming leave, or stop tracking them.
+- **Live camera:** what the camera sees, with faces labelled; outside camera hours, turn it on for 15 minutes to adjust its position.
+- **Settings:** working hours, Google Chat (with a test button), HR system, camera, password and privacy. Rarely needed recognition values are under *Advanced*.
+- **Change log:** every change made on the page, with who made it and when; searchable.
 
 ## HR system API
 

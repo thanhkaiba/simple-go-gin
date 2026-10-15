@@ -104,10 +104,10 @@ class FaceLibrary:
         self.gallery.add(employee_id, face.embedding)
         for other, score in self.similar_to(employee_id, face.embedding):
             other_name = self.store.employees().get(other, other)
-            text = (f"This photo of {name} looks like {other_name} (similarity {score:.2f}). "
-                    f"They may be confused; check that the photo is in the right person's folder.")
+            text = (f"This photo of {name} looks like {other_name} ({score:.0%} match), so the camera may "
+                    f"confuse them. Check that it really is {name}.")
             warnings.append(text)
-            self._alert(f"⚠️ Look-alike reference photos: {name} and {other_name} (similarity {score:.2f}). "
+            self._alert(f"⚠️ Look-alike reference photos: {name} and {other_name} ({score:.0%} match). "
                         f"Check the photos on the Employees page.")
         return AddResult(True, f"Photo added for {name}.", warnings)
 

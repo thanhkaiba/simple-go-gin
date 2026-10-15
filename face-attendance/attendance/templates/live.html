@@ -1,39 +1,66 @@
 {% extends "base.html" %}
 {% block body %}
-<h1>Live camera</h1>
-<div class="card">
-  <div id="problem" class="flash error" hidden></div>
-  <p>Camera: <strong id="camera">…</strong> · <span id="fps"></span> frames analysed per second</p>
-  <p>Faces in view: <span id="faces" class="muted">–</span></p>
-  <p>Last identified: <span id="last" class="muted">–</span></p>
-  <p class="muted">Camera hours {{ cfg.schedule.window_start }}–{{ cfg.schedule.window_end }}.
-    Green = recognised, orange = face not good enough to use (reason shown), red = no matching employee.</p>
-  <form method="post" action="{{ url_for('preview') }}" id="preview-form">
-    <span id="preview-hint" class="muted">Outside camera hours the camera is off. Turn it on for 15 minutes to check its position: </span>
-    <button name="action" value="start" class="primary" id="start">Start preview</button>
-    <button name="action" value="stop" id="stop">Stop preview</button>
+<div class="page-head">
+  <div>
+    <h1>Live camera</h1>
+    <p class="subtitle">Camera on {{ cfg.schedule.window_start }}–{{ cfg.schedule.window_end }} on work days. Use this page to position the camera.</p>
+  </div>
+  <form method="post" action="{{ url_for('preview') }}" class="btn-group">
+    <button name="action" value="start" class="primary" id="start" hidden>▶ Turn camera on for 15 minutes</button>
+    <button name="action" value="stop" id="stop" hidden>■ Stop preview</button>
   </form>
 </div>
-<img id="frame" alt="" style="max-width:100%; border-radius:8px; display:none">
-<p id="no-frame" class="muted">No picture yet.</p>
+
+<div class="alert error" id="problem" hidden></div>
+
+<div style="display:grid; grid-template-columns: minmax(0, 3fr) minmax(240px, 1fr); gap:16px" class="split">
+  <div class="card" style="padding:8px; min-height:240px; display:flex; align-items:center; justify-content:center; background:#0f172a">
+    <img id="frame" alt="" style="max-width:100%; border-radius:6px; display:none">
+    <div id="no-frame" style="color:#94a3b8; text-align:center">No picture.<br><span class="small" id="no-frame-why"></span></div>
+  </div>
+  <div>
+    <div class="card" style="display:grid; gap:12px">
+      <div><div class="hint">Camera</div><span class="badge info" id="camera">…</span></div>
+      <div><div class="hint">Frames analysed per second</div><strong id="fps">–</strong></div>
+      <div><div class="hint">Faces in view</div><div id="faces" class="muted">–</div></div>
+      <div><div class="hint">Last recognised</div><div id="last" class="muted">–</div></div>
+    </div>
+    <div class="card small">
+      <div style="display:grid; gap:6px">
+        <div><span class="badge ok">green</span> recognised</div>
+        <div><span class="badge late">orange</span> face not usable (reason shown): move or light the camera</div>
+        <div><span class="badge bad">red</span> no matching employee</div>
+      </div>
+      <p class="hint" style="margin-bottom:0">Faces should be at least 80 px wide, seen from the front, with light on them.</p>
+    </div>
+  </div>
+</div>
+<style>@media (max-width: 800px) { .split { grid-template-columns: 1fr !important; } }</style>
+{% endblock %}
+{% block scripts %}
 <script>
   const frame = document.getElementById('frame');
   async function refresh() {
     try {
       const s = await (await fetch('{{ url_for("live_json") }}', {cache: 'no-store'})).json();
-      document.getElementById('camera').textContent = s.camera;
+      const cam = document.getElementById('camera');
+      cam.textContent = s.camera;
+      cam.className = 'badge ' + (s.camera === 'ok' ? 'ok' : s.camera.startsWith('problem') || s.camera.startsWith('no picture') ? 'bad' : 'info');
       document.getElementById('fps').textContent = s.fps;
       document.getElementById('faces').textContent = s.faces.length ? s.faces.join(' · ') : '–';
       document.getElementById('last').textContent = s.last_identified || '–';
       const p = document.getElementById('problem'); p.hidden = !s.problem; p.textContent = s.problem || '';
       document.getElementById('start').hidden = s.in_window || s.previewing;
       document.getElementById('stop').hidden = !s.previewing;
-      document.getElementById('preview-hint').hidden = s.in_window;
       const fresh = s.frame_age !== null && s.frame_age < 10;
-      if (fresh) { frame.src = '{{ url_for("live_jpg") }}?t=' + Date.now(); }
+      if (fresh) frame.src = '{{ url_for("live_jpg") }}?t=' + Date.now();
       frame.style.display = fresh ? 'block' : 'none';
       document.getElementById('no-frame').hidden = fresh;
-    } catch (e) { document.getElementById('camera').textContent = 'admin page cannot reach the program'; }
+      document.getElementById('no-frame-why').textContent =
+        s.in_window || s.previewing ? 'Waiting for the camera…' : 'The camera is off outside camera hours. Turn it on to check its position.';
+    } catch (e) {
+      const cam = document.getElementById('camera'); cam.textContent = 'cannot reach the program'; cam.className = 'badge bad';
+    }
   }
   refresh(); setInterval(refresh, 1000);
 </script>
