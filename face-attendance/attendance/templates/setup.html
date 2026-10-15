@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+{% macro head(step, number) %}
+  <div class="form-row" style="justify-content:space-between; align-items:center; margin-bottom:8px">
+    <h2 style="margin:0">{{ '✅' if step.done else ('⬜' if step.required else '◻️') }} {{ number }}. {{ step.title }}
+      {% if not step.required %}<span class="badge info" style="font-size:12px; vertical-align:middle">optional</span>{% endif %}</h2>
+  </div>
+  {% if step.detail %}<p class="hint" style="margin-top:0">{{ step.detail }}</p>{% endif %}
+{% endmacro %}
+{% block body %}
+{% set s = {} %}{% for st in steps %}{% set _ = s.update({st.key: st}) %}{% endfor %}
+{% set left = steps|selectattr('required')|rejectattr('done')|list|length %}
+<div class="page-head">
+  <div>
+    <h1>Setup</h1>
+    <p class="subtitle">{% if left %}{{ left }} step{{ 's' if left > 1 }} left. Each takes a minute; everything can be changed later in Settings.
+      {% else %}All set. The camera runs {{ cfg.schedule.window_start }}–{{ cfg.schedule.window_end }} on work days.{% endif %}</p>
+  </div>
+  {% if left %}<form method="post" action="{{ url_for('setup_action', action='later') }}"><button>Finish later</button></form>
+  {% else %}<a class="btn primary" href="{{ url_for('index') }}">Go to Today →</a>{% endif %}
+</div>
+
+<div class="card" id="camera">
+  {{ head(s.camera, 1) }}
+  <form method="post" action="{{ url_for('setup_save') }}" class="form-row">
+    <input type="hidden" name="back" value="{{ url_for('setup_page') }}#camera">
+    <label class="field grow">RTSP address
+      <input name="camera.url" value="{{ cfg.camera.url }}" placeholder="rtsp://admin:CODE@192.168.1.64:554/Streaming/Channels/101" required>
+      <span class="hint">Ezviz: user <b>admin</b>, password = the 6 capital letters on the camera label, IP from the EZVIZ app
+        (device settings → network) or the router. Give the camera a fixed IP in the router.</span></label>
+    <button class="primary">Save</button>
+  </form>
+  {% if cfg.camera.url %}
+  <form method="post" action="{{ url_for('setup_action', action='check-camera') }}" style="margin-top:10px">
+    <button>📷 Check the picture</button> <span class="hint">Opens the Live camera page with the camera on for 15 minutes.
+      There, also draw the detection area around the walkway.</span>
+  </form>
+  {% endif %}
+</div>
+
+<div class="card" id="password">
+  {{ head(s.password, 2) }}
+  <form method="post" action="{{ url_for('setup_save') }}" class="form-row">
+    <input type="hidden" name="back" value="{{ url_for('setup_page') }}#password">
+    <label class="field">New password (user: {{ cfg.web.username }})
+      <input name="web.password" type="password" autocomplete="new-password" required minlength="6"></label>
+    <button class="primary">Save</button>
+  </form>
+  <p class="hint">After saving, the browser asks for the user name and this password.</p>
+</div>
+
+<div class="card" id="address">
+  {{ head(s.address, 3) }}
+  <form method="post" action="{{ url_for('setup_save') }}" class="form-row">
+    <input type="hidden" name="back" value="{{ url_for('setup_page') }}#address">
+    <label class="field grow">Address other computers use to open this page
+      <input name="web.public_url" value="{{ suggested_url if s.address.done == false else cfg.web.public_url }}" required></label>
+    <button class="primary">Save</button>
+  </form>
+  <p class="hint">Suggested from this computer's network address. Give this computer a fixed IP in the router too.</p>
+</div>
+
+<div class="card" id="chat">
+  {{ head(s.chat, 4) }}
+  <form method="post" action="{{ url_for('setup_save') }}" class="form-row">
+    <input type="hidden" name="back" value="{{ url_for('setup_page') }}#chat">
+    <label class="field grow">Webhook URL
+      <input name="google_chat.webhook_url" value="{{ cfg.google_chat.webhook_url }}" placeholder="https://chat.googleapis.com/v1/spaces/…" required>
+      <span class="hint">In Google Chat: open the space → its name → Apps &amp; integrations → Webhooks → Add webhook → copy the URL.
+        Needs a Google Workspace account; if Webhooks is missing, ask your Workspace admin to allow incoming webhooks.</span></label>
+    <button formaction="{{ url_for('test_chat') }}">Send test message</button>
+    <button class="primary">Save</button>
+  </form>
+</div>
+
+<div class="card" id="employees">
+  {{ head(s.employees, 5) }}
+  <div class="form-row">
+    <a class="btn primary" href="{{ url_for('employees') }}">Add or import employees</a>
+    {% if not s.employees.done %}
+    <form method="post" action="{{ url_for('setup_action', action='skip-employees') }}">
+      <button>Let the camera collect faces first</button></form>
+    {% endif %}
+  </div>
+  <p class="hint">Import a CSV (columns <code>id,name</code>, optionally <code>chat_user</code>) and upload 3–5 photos per person,
+    or let the camera run for a day or two and name each face once on the To review page.</p>
+</div>
+
+<div class="card" id="area">
+  {{ head(s.area, 6) }}
+  <p class="hint" style="margin-top:0">On the <a href="{{ url_for('live_page') }}">Live camera</a> page, click <i>Select area</i> and drag over
+    the walkway. Faces get bigger for the detector and people sitting elsewhere are ignored.</p>
+</div>
+
+<div class="card" id="mentions">
+  {{ head(s.mentions, 7) }}
+  <p class="hint" style="margin-top:0">For real @mentions, enter each employee's Google Chat user ID (a long number from the Google Admin
+    console → Directory → Users) on their page, or in a <code>chat_user</code> column of the CSV.</p>
+</div>
+
+<div class="card" id="hr">
+  {{ head(s.hr, 8) }}
+  <p class="hint" style="margin-top:0">Connect the HR system in <a href="{{ url_for('settings_page') }}#hr">Settings → HR system</a>,
+    so nobody on leave or on a holiday is reported. The expected API format is in the README.</p>
+</div>
+{% endblock %}

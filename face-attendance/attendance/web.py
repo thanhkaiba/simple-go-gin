@@ -16,6 +16,7 @@ from flask import (Flask, Response, abort, flash, jsonify, redirect, render_temp
                    send_from_directory, url_for)
 
 from . import leave_api, settings
+from . import setup as first_setup
 from .service import SOURCES, minutes_late
 from .store import LEAVE_KINDS
 
@@ -86,6 +87,7 @@ def create_app(core: "App") -> Flask:
     @app.context_processor
     def common():
         return {"pending": store.pending_group_count(), "nav": request.endpoint, "SOURCES": SOURCES,
+                "setup_open": first_setup.open_count(core),
                 "leave_label": lambda kind: LEAVE_KINDS.get(kind, kind), "WEEKDAYS": WEEKDAYS}
 
     def leave_status() -> dict:
@@ -109,18 +111,27 @@ def create_app(core: "App") -> Flask:
                 "skipped": skipped.astimezone(service.tz) if skipped else None,
                 "missing_chat": no_id, "send_at": lm.send_at or cfg.schedule.window_end, "auto": lm.auto_send}
 
+    def _back(endpoint: str, **kwargs):
+        """Where to go after a form: the page it came from when it says so (setup forms), else `endpoint`."""
+        back = request.form.get("back", "")
+        if back.startswith("/") and not back.startswith("//"):
+            return redirect(back)
+        return redirect(url_for(endpoint, **kwargs))
+
     def done(message: str, endpoint: str, **kwargs):
         flash(message, "ok")
-        return redirect(url_for(endpoint, **kwargs))
+        return _back(endpoint, **kwargs)
 
     def failed(message: str, endpoint: str, **kwargs):
         flash(message, "error")
-        return redirect(url_for(endpoint, **kwargs))
+        return _back(endpoint, **kwargs)
 
     # attendance --------------------------------------------------------------------
 
     @app.get("/")
     def index():
+        if first_setup.first_run(core) and not request.args.get("day"):
+            return redirect(url_for("setup_page"))
         today = service.now().date()
         day = _date(request.args.get("day"), today)
         rep = service.report(day)
@@ -538,6 +549,46 @@ def create_app(core: "App") -> Flask:
         except Exception as exc:
             return failed(f"Sending failed: {exc}", "settings_page")
         return done("Test message sent; check Google Chat.", "settings_page")
+
+    # first-run setup ------------------------------------------------------------------
+
+    SETUP_FIELDS = {"camera.url": ("camera", "url"), "web.password": ("web", "password"),
+                    "web.public_url": ("web", "public_url"), "google_chat.webhook_url": ("google_chat", "webhook_url")}
+
+    @app.get("/setup")
+    def setup_page():
+        return render_template("setup.html", steps=first_setup.steps(core), cfg=cfg,
+                               suggested_url=first_setup.lan_address(cfg.web.port))
+
+    @app.post("/setup/save")
+    def setup_save():
+        changes: dict = {}
+        for key, (section, name) in SETUP_FIELDS.items():
+            value = request.form.get(key)
+            if value and value.strip():  # empty fields are left as they are
+                changes.setdefault(section, {})[name] = value.strip()
+        if not changes:
+            return failed("Nothing to save.", "setup_page")
+        try:
+            settings.save(cfg, store, changes)
+        except ValueError as exc:
+            return failed(f"Not saved: {exc}", "setup_page")
+        store.log(service.now(), user(), "change settings",
+                  ", ".join(f"{s}.{n}" for s, f in changes.items() for n in f))
+        return done("Saved.", "setup_page")
+
+    @app.post("/setup/<action>")
+    def setup_action(action: str):
+        if action == "skip-employees":
+            store.put(first_setup.SKIP_EMPLOYEES_KEY, "1")
+            return done("The camera will collect faces; name them on the To review page.", "setup_page")
+        if action == "later":
+            store.put(first_setup.DISMISSED_KEY, "1")
+            return done("You can finish the setup any time from the Setup page.", "index")
+        if action == "check-camera":
+            live.start_preview()
+            return redirect(url_for("live_page"))
+        abort(404)
 
     @app.get("/audit")
     def audit():

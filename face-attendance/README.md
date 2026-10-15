@@ -65,6 +65,27 @@ Other design decisions:
 
 ## 1. Install
 
+### Easy install (recommended)
+
+No commands needed, and no admin rights. The installer gets its own Python, the libraries and the models (about 300 MB the first time), starts the program now and at every login, puts a shortcut on the Desktop and opens the **Setup** page.
+
+1. Download this folder (on GitHub: *Code → Download ZIP*) and unzip it.
+2. Double-click the installer in the `face-attendance` folder:
+   - **macOS:** `Install.command`. If macOS says it cannot be opened, right-click it → *Open* → *Open*. When asked whether Python may accept incoming network connections, click *Allow*.
+   - **Windows:** `Install.bat`. If SmartScreen warns, click *More info* → *Run anyway*. When Windows Firewall asks about Python, allow it on *private networks*.
+3. The browser opens the **Setup** page: camera address (with a picture check), a password for the page, the address other computers use, Google Chat (with a test message) and the employees. Each step is ticked when done.
+
+| | macOS | Windows |
+|---|---|---|
+| Program, settings and data | `~/Library/Application Support/FaceAttendance` | `%LOCALAPPDATA%\FaceAttendance` |
+| Starts automatically | at login (LaunchAgent; restarted if it stops; keeps the Mac awake) | at login (Startup folder; restarted if it stops) |
+| Update | download the new version and run its `Install.command` (or `Update.command` in a git checkout) | download the new version and run its `Install.bat` |
+| Remove | `Uninstall.command` | `Uninstall.bat` |
+
+Updating keeps settings, attendance records and photos; *Uninstall* asks before deleting them. The program starts when that user logs in, so turn on automatic login on the office computer (see [Keep it running](#5-keep-it-running)). The program log is `data/attendance.log` in the folder above.
+
+### Manual install
+
 You need **Python 3.10 or newer**.
 
 ### Windows

@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "face-attendance"
+version = "1.0.0"
+description = "Camera attendance: recognises employees walking in, reports who is late, posts to Google Chat."
+requires-python = ">=3.10"
+dependencies = [
+    "onnxruntime>=1.17",
+    "opencv-python-headless>=4.9",
+    "numpy>=1.26",
+    "Flask>=3.0",
+    "PyYAML>=6.0",
+    "tzdata; sys_platform == 'win32'",
+]
+
+[project.scripts]
+face-attendance = "attendance.__main__:main"
+
+[tool.setuptools]
+packages = ["attendance"]
+
+[tool.setuptools.package-data]
+attendance = ["templates/*.html"]

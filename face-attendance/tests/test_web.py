@@ -242,3 +242,48 @@ def test_accuracy_page(core):
     page = c.get(f"/accuracy?start={DAY}&end={DAY}").get_data(as_text=True)
     assert "Recognition accuracy" in page and "Mix-ups" in page and "100.0%" in page
     assert "Alice" in page and "Bob" in page
+
+
+def test_first_run_goes_to_setup_and_steps_get_ticked(tmp_path):
+    from attendance.config import Config
+    from attendance.pipeline import App
+    from attendance.setup import open_count, steps
+
+    cfg = Config(data_dir="data", base_dir=tmp_path)
+    cfg.validate()
+    app = App(cfg)
+    app.chat._post = lambda url, payload: None
+    c = client(app)
+    resp = c.get("/")
+    assert resp.status_code == 302 and resp.headers["Location"].endswith("/setup")
+    page = c.get("/setup").get_data(as_text=True)
+    assert "5 steps left" in page and "Camera address" in page
+    assert open_count(app) == 5
+
+    c.post("/setup/save", data={"camera.url": "rtsp://admin:X@10.0.0.5:554/Streaming/Channels/101",
+                                "back": "/setup#camera"})
+    c.post("/setup/save", data={"web.public_url": "http://10.0.0.9:8000"})
+    c.post("/setup/save", data={"google_chat.webhook_url": "https://chat.googleapis.com/v1/spaces/X/messages?key=k"})
+    c.post("/setup/skip-employees")
+    assert cfg.camera.url.endswith("/101") and cfg.web.public_url == "http://10.0.0.9:8000"
+    assert {s.key for s in steps(app) if s.required and not s.done} == {"password"}
+    assert c.get("/").status_code == 200  # a camera is set: no more redirect
+
+    c.post("/setup/save", data={"web.password": "secret1"})
+    assert cfg.web.password == "secret1"
+    assert c.get("/setup").status_code == 401  # login now required
+    auth = {"Authorization": "Basic " + __import__("base64").b64encode(b"admin:secret1").decode()}
+    assert "All set" in c.get("/setup", headers=auth).get_data(as_text=True)
+
+
+def test_setup_can_be_put_off(tmp_path):
+    from attendance.config import Config
+    from attendance.pipeline import App
+
+    cfg = Config(data_dir="data", base_dir=tmp_path)
+    cfg.validate()
+    c = client(App(cfg))
+    c.post("/setup/later")
+    assert c.get("/").status_code == 200
+    resp = c.post("/setup/save", data={"camera.url": ""}, follow_redirects=True)
+    assert "Nothing to save" in resp.get_data(as_text=True)
