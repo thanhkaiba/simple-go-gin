@@ -118,9 +118,10 @@ def test_background_delivery_never_blocks_the_sender(tmp_path):
 
     chat = GoogleChat("https://example/hook", store, post=slow_post)
     chat.start_background()
+    now = dt.datetime.now(dt.timezone.utc)  # the background sender uses the real clock to expire old messages
     t0 = time.monotonic()
-    chat.send("hello", None, NOW)
-    chat.kick(NOW)
+    chat.send("hello", None, now)
+    chat.kick(now)
     assert time.monotonic() - t0 < 1 and delivered == []  # queued, the caller is not held up
     release.set()
     for _ in range(100):

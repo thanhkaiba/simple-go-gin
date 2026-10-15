@@ -41,6 +41,7 @@ class DetectedFace:
     quality_ok: bool
     quality: float
     landmarks: np.ndarray | None = None  # 5 points: eyes, nose, mouth corners
+    size_ok: bool = True  # big and clearly detected; the rest of the gate (pose, blur) can be outweighed
 
 
 def enhance_low_light(frame: np.ndarray, threshold: float = 90.0) -> np.ndarray:
@@ -258,8 +259,8 @@ class FaceRecognizer:
             size = min(bbox[2] - bbox[0], bbox[3] - bbox[1])
             yaw, pitch = head_pose(landmarks)
             sharp = sharpness(frame, bbox)
-            ok = (size >= c.min_face_px and det >= c.min_det_score and sharp >= c.min_sharpness
-                  and yaw <= c.max_yaw and abs(pitch) <= c.max_pitch)
+            size_ok = size >= c.min_face_px and det >= c.min_det_score
+            ok = size_ok and sharp >= c.min_sharpness and yaw <= c.max_yaw and abs(pitch) <= c.max_pitch
             quality = (det * min(1.0, size / 112) * min(1.0, sharp / 150)
                        * math.cos(math.radians(min(yaw, 89))) * math.cos(math.radians(min(abs(pitch), 89))))
             try:
@@ -268,7 +269,7 @@ class FaceRecognizer:
                 continue
 
             emb /= max(float(np.linalg.norm(emb)), 1e-12)
-            out.append(DetectedFace(bbox, emb, det, size, sharp, yaw, pitch, ok, quality, landmarks))
+            out.append(DetectedFace(bbox, emb, det, size, sharp, yaw, pitch, ok, quality, landmarks, size_ok))
         return out
 
     def largest_face(self, image: np.ndarray, mirror: bool = False) -> DetectedFace | None:

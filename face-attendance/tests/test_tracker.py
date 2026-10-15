@@ -72,9 +72,9 @@ def test_settings_changes_apply_to_a_running_tracker():
     assert [d.employee_id for d in out] == ["A"]
 
 
-def test_poor_quality_frames_never_identify_and_become_unknown():
+def test_poor_quality_frames_with_ordinary_matches_never_identify_and_become_unknown():
     tr = tracker()
-    out = frames(tr, lambda i: [obs(noisy(A), ok=False)], 6)
+    out = frames(tr, lambda i: [obs(noisy(A, 1.4), ok=False)], 6)  # matches A at ~0.58, below the strong bar
     assert out == []
     out = tr.update([], T0 + dt.timedelta(seconds=20))
     assert [d.kind for d in out] == ["unknown"]
@@ -122,3 +122,16 @@ def test_conflicting_votes_do_not_identify():
         o = Observation((100, 100, 180, 180), m, candidates, True, 0.5)
         out += tr.update([o], T0 + dt.timedelta(seconds=0.2 * i))
     assert [d for d in out if d.kind == "identified"] == []
+
+
+def test_strong_matches_outweigh_the_pose_check_but_not_a_tiny_face():
+    """A camera above head height makes every face look tilted down; a face that still matches one
+    person far above the threshold votes. A face too small to trust never does."""
+    tr = tracker()
+    out = frames(tr, lambda i: [obs(noisy(A, 0.6), ok=False)], 4)  # ~0.86, pose check failed
+    assert [d.employee_id for d in out] == ["A"]
+
+    tr = tracker()
+    tiny = lambda i: [Observation((100, 100, 130, 130), noisy(A, 0.6), GALLERY.match(noisy(A, 0.6)), False, 0.1,
+                                  size_ok=False)]
+    assert [d.kind for d in frames(tr, tiny, 6) + tr.flush()] == ["unknown"]

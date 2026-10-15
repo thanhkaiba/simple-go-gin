@@ -17,7 +17,7 @@ from .live import FrameHealth, LiveStatus
 from .notifier import GoogleChat
 from .service import AttendanceService
 from .store import Store
-from .tracker import Decision
+from .tracker import Decision, vote_for
 
 log = logging.getLogger(__name__)
 
@@ -92,11 +92,9 @@ def face_label(app: App, face, candidates) -> tuple[str, tuple[int, int, int]]:
     """Text and BGR colour drawn on the live view for one face."""
     rc = app.cfg.recognition
     names = app.store.employees()
-    if candidates:
-        person, top = candidates[0]
-        runner_up = candidates[1][1] if len(candidates) > 1 else -1.0
-        if face.quality_ok and top >= rc.accept_score and top - runner_up >= rc.min_margin:
-            return f"{names.get(person, person)} {top:.2f}", (60, 180, 60)
+    person = vote_for(candidates, face.quality_ok, face.size_ok, rc)
+    if person is not None:
+        return f"{names.get(person, person)} {candidates[0][1]:.2f}", (60, 180, 60)
     if face.size < rc.min_face_px:
         reason = "too small"
     elif face.sharpness < rc.min_sharpness:

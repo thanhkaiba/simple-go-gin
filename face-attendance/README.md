@@ -384,6 +384,11 @@ Measured on a 4-core server CPU, 1280x720, one person plus a group in view:
 Person mode only searches the whole frame for faces every `full_frame_every` frames (4 by
 default) and the head regions on every frame, so it costs little extra with `insightface`.
 
+**Tested on a crowded doorway video** (people walking in close together, see *Tested on public
+video* below), person mode did **not** recognise more people than face mode, and sent more faces to
+review, so face mode stays the default. Try person mode with `benchmark` on your own entrance video
+before switching.
+
 ### Slow computer (e.g. a 2017 Mac)
 
 An Intel Mac from 2017 is roughly half as fast as the numbers above. In order of effect:
@@ -397,10 +402,31 @@ An Intel Mac from 2017 is roughly half as fast as the numbers above. In order of
 
 Run `benchmark` on the real machine and pick the combination that reaches the frame rate you set.
 
+## Tested on public video
+
+The system was run, as if the video were the camera, on the [ChokePoint dataset](https://arma.sourceforge.net/chokepoint/)
+(NICTA; Wong et al., CVPR Workshops 2011; CC BY-NC 4.0, research use, not included here): an office
+doorway filmed by a camera above the door. Reference photos were cut from one recording session and
+another session was played back.
+
+| | insightface | opencv |
+|---|---|---|
+| One person at a time: 20 enrolled people + 5 strangers | 20/20 recognised, 0 wrong, 5/5 strangers sent to review | 20/20, 0 wrong, 5/5 |
+| Time from appearing to being recognised (3-5 frames/s) | mostly 0.5-1 s | mostly 0.5-1 s |
+| Crowded entry (people close together, backlight, glass door) | 18 people named, all correct; the rest sent to review | 15 named, all correct |
+| Time per frame on a 4-core server CPU, crowded scene | ~670 ms | ~65 ms |
+
+Lessons built into the settings:
+- **A camera above head height** makes every face look tilted down. A face that fails the pose or
+  sharpness check therefore still votes when it matches one person very clearly (at least
+  `accept_score + 0.15`, with twice the usual margin); before this, 4 of the 20 people were missed.
+- **Glass doors reflect faces**, which then show up as unknown faces to review. Set a detection area
+  that leaves the glass out.
+
 ## How wrong identifications are avoided
 
 1. **5-point alignment:** every face is aligned before its embedding is computed.
-2. **Quality gate:** small, blurred, turned-away or weakly detected faces **do not vote**.
+2. **Quality gate:** small, blurred, turned-away or weakly detected faces **do not vote**, unless a big, clearly detected face matches one person far above the threshold (pose is only estimated, and a high camera makes every face look tilted).
 3. **Several references per person:** a person's score is the mean of their two closest reference photos.
 4. **Clear margin:** the best match must beat the runner-up by a margin.
 5. **Several frames must agree:** at least twice as many votes as everyone else combined. A track that ends one vote short is still accepted when all its votes agree and the match is very strong (fast walkers).

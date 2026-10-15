@@ -79,8 +79,8 @@ class FrameProcessor:
         matched = [(f, self.app.gallery.match(f.embedding), pid) for f, pid in zip(faces, owners)]
         decisions = []
         if record:
-            observations = [Observation(f.bbox, f.embedding, c, f.quality_ok, f.quality, crop_face(frame, f.bbox), pid)
-                            for f, c, pid in matched]
+            observations = [Observation(f.bbox, f.embedding, c, f.quality_ok, f.quality, crop_face(frame, f.bbox), pid,
+                                        f.size_ok) for f, c, pid in matched]
             decisions = self.face_tracker.update(observations, ts, followed)
         self.people = people
         return decisions, matched, people

@@ -25,6 +25,25 @@ SPLIT_WINDOW = dt.timedelta(seconds=5)
 # A track that ends one vote short is still accepted when its votes are unanimous and this much
 # above accept_score: someone walking fast past a slow PC may only give two good frames.
 STRONG_BONUS = 0.1
+# A face that fails the pose or sharpness check still votes when it matches one person this far
+# above accept_score, with twice the usual margin. The pose is only estimated from 5 landmarks,
+# and a camera mounted above head height makes every face look tilted down; tested on doorway
+# video, such faces matched the right person at 0.85-0.9 while everyone else stayed below 0.2.
+STRONG_MATCH = 0.15
+
+
+def vote_for(candidates, quality_ok: bool, size_ok: bool, params) -> str | None:
+    """The person this face votes for, or None: a clear match on a usable face."""
+    if not candidates:
+        return None
+    person, top = candidates[0]
+    margin = top - (candidates[1][1] if len(candidates) > 1 else -1.0)
+    if top < params.accept_score or margin < params.min_margin:
+        return None
+    if quality_ok:
+        return person
+    strong = top >= params.accept_score + STRONG_MATCH and margin >= 2 * params.min_margin
+    return person if size_ok and strong else None
 
 
 @dataclass
@@ -36,6 +55,7 @@ class Observation:
     quality: float  # used to pick the best image of a track
     crop: Any = None
     person_id: int | None = None  # the person (body) track this face belongs to, if known
+    size_ok: bool = True  # big and clearly detected (see vote_for)
 
 
 @dataclass
@@ -134,12 +154,8 @@ class FaceTracker:
             t.best = obs
         for person, score in obs.candidates:
             t.best_score[person] = max(score, t.best_score.get(person, -1.0))
-        if not obs.quality_ok or not obs.candidates:
-            return None
-
-        person, top = obs.candidates[0]
-        runner_up = obs.candidates[1][1] if len(obs.candidates) > 1 else -1.0
-        if top >= self.p.accept_score and top - runner_up >= self.p.min_margin:
+        person = vote_for(obs.candidates, obs.quality_ok, obs.size_ok, self.p)
+        if person is not None:
             t.votes[person] += 1
 
         if t.decided or not t.votes:
