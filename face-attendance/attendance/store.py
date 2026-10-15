@@ -51,7 +51,8 @@ CREATE TABLE IF NOT EXISTS unknowns (
     guess_score REAL,
     status TEXT NOT NULL DEFAULT 'pending',
     employee_id TEXT,
-    notified INTEGER NOT NULL DEFAULT 0
+    notified INTEGER NOT NULL DEFAULT 0,
+    group_id INTEGER  -- unknown faces that look like the same person share a group
 );
 CREATE TABLE IF NOT EXISTS calendar (
     day TEXT PRIMARY KEY,
@@ -128,6 +129,7 @@ class Unknown:
     guess_score: float | None
     status: str
     employee_id: str | None
+    group_id: int = 0
 
 
 @dataclass
@@ -170,7 +172,7 @@ class Store:
 
     def _migrate(self) -> None:
         """Add columns introduced after a database was created."""
-        added = {"embeddings": [("image", "TEXT")]}
+        added = {"embeddings": [("image", "TEXT")], "unknowns": [("group_id", "INTEGER")]}
         for table, columns in added.items():
             have = {r["name"] for r in self._db.execute(f"PRAGMA table_info({table})")}
             for name, kind in columns:
@@ -347,16 +349,45 @@ class Store:
     # unknown faces ---------------------------------------------------------
 
     def add_unknown(self, day: dt.date, ts: dt.datetime, image: str | None, model: str | None,
-                    vector: np.ndarray | None, guess_id: str | None, guess_score: float | None) -> int:
-        cur = self._exec(
-            "INSERT INTO unknowns (day, ts, image, model, vector, guess_id, guess_score) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (day.isoformat(), ts.isoformat(), image, model, _blob(vector), guess_id, guess_score),
-        )
+                    vector: np.ndarray | None, guess_id: str | None, guess_score: float | None,
+                    group_id: int | None = None) -> int:
+        """Store an unidentified face; without a group it starts a new group of its own."""
+        with self._lock, self._db:
+            cur = self._db.execute(
+                "INSERT INTO unknowns (day, ts, image, model, vector, guess_id, guess_score, group_id) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (day.isoformat(), ts.isoformat(), image, model, _blob(vector), guess_id, guess_score, group_id),
+            )
+            if group_id is None:
+                self._db.execute("UPDATE unknowns SET group_id = id WHERE id = ?", (cur.lastrowid,))
         return cur.lastrowid
 
     def _unknown(self, r) -> Unknown:
         return Unknown(r["id"], dt.datetime.fromisoformat(r["ts"]), r["image"], r["model"], _vec(r["vector"]),
-                       r["guess_id"], r["guess_score"], r["status"], r["employee_id"])
+                       r["guess_id"], r["guess_score"], r["status"], r["employee_id"], r["group_id"] or r["id"])
+
+    def pending_groups(self) -> list[list[Unknown]]:
+        """Pending unknown faces grouped by person, most recently seen group first."""
+        groups: dict[int, list[Unknown]] = {}
+        for u in self.unknowns():
+            groups.setdefault(u.group_id, []).append(u)
+        return sorted(groups.values(), key=lambda g: g[-1].ts, reverse=True)
+
+    def group(self, group_id: int) -> list[Unknown]:
+        rows = self._all("SELECT * FROM unknowns WHERE COALESCE(group_id, id) = ? AND status = 'pending' ORDER BY ts",
+                         (group_id,))
+        return [self._unknown(r) for r in rows]
+
+    def resolve_group(self, group_id: int, status: str, employee_id: str | None) -> None:
+        self._exec("UPDATE unknowns SET status = ?, employee_id = ? WHERE COALESCE(group_id, id) = ? AND status = 'pending'",
+                   (status, employee_id, group_id))
+
+    def pending_group_count(self, day: dt.date | None = None) -> int:
+        sql, params = "SELECT COUNT(DISTINCT COALESCE(group_id, id)) AS n FROM unknowns WHERE status = 'pending'", []
+        if day is not None:
+            sql += " AND day = ?"
+            params.append(day.isoformat())
+        return self._all(sql, params)[0]["n"]
 
     def unknown(self, unknown_id: int) -> Unknown | None:
         rows = self._all("SELECT * FROM unknowns WHERE id = ?", (unknown_id,))

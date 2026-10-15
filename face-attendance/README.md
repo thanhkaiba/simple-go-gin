@@ -111,6 +111,7 @@ Then open **http://localhost:8000**, or `http://<computer IP>:8000` from another
 2. **Employees:**
    - Add people one by one, or import a CSV file with columns `id,name`.
    - Open each person and **upload 5–10 photos**: looking straight, slightly left and right, with and without glasses, and one with a mask if they often wear one. Frames from the door camera itself work best.
+   - **Or skip the photos and let the camera collect faces**, as described in the next step.
    - The page warns about blurred photos, photos without a face, and photos that look like another employee.
 3. **HR system** (Settings): enter the API address and token, then click *Load leave data from the HR system now*. See [HR system API](#hr-system-api) for the format.
 4. **Live camera:** click *Start preview* to see what the camera sees, with each face labelled. Use it to position the camera. Green boxes mean a face is recognised; orange boxes show why a face cannot be used (too small, blurred, turned away).
@@ -131,10 +132,13 @@ The menu at the top has everything:
   - Quick buttons choose this month, last month, the last 7 or 30 days.
   - Download a **summary CSV** or a **CSV with every day**; both open in Excel.
   - Days when the camera did not work are flagged and not counted as absences.
-- **To review** (red number = how many): faces the camera was not sure about.
-  - **"✓ It's …"** confirms the suggested person in one click, or pick someone else from the list.
-  - Confirming records the arrival at the photo time and teaches the system that face.
-  - *Not an employee* hides visitors.
+- **To review** (red number = how many people): faces the camera could not identify.
+  - **Grouping:** photos that look like the same person are grouped ("Seen 6 times"), so each person is named only once.
+  - **Naming a group:** click **"✓ It's …"** for the suggested person, pick someone from the list, or click **+ New employee** to create them on the spot (the next id is suggested).
+  - **What confirming does:** records the person's arrival on every day they were seen and teaches the system up to 5 of their photos.
+  - **Not an employee** hides a visitor's whole group.
+
+  **Starting without any photos:** let the camera run for a day or two. Everyone who passes appears here; name each person once, and from then on the camera recognises them. Upload extra photos later for people it still finds hard.
 - **Employees:** search, add, or import from CSV. Open a person to drag and drop their photos (with a preview before uploading), see their upcoming leave, or stop tracking them.
 - **Live camera:** what the camera sees, with faces labelled; outside camera hours, turn it on for 15 minutes to adjust its position.
 - **Settings:** working hours, Google Chat (with a test button), HR system, camera, password and privacy. Rarely needed recognition values are under *Advanced*.

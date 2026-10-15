@@ -5,7 +5,7 @@ import pytest
 
 from attendance.gallery import Gallery
 from attendance.service import AttendanceService
-from conftest import DAY, at
+from conftest import DAY, at, person_vector
 
 
 def run_until(service, clock, end, step=dt.timedelta(seconds=30), camera_ok=True):
@@ -61,12 +61,11 @@ def test_notices_are_sent_once_even_after_restart(env, tmp_path):
 def test_unknown_faces_are_batched_and_admin_can_resolve(env):
     service, store, clock, sent = env
     run_until(service, clock, at(9, 10))
-    vec = np.ones(512, dtype=np.float32)
-    uid = service.on_unknown(at(9, 12), "x.jpg", vec, "C", 0.38)
-    service.on_unknown(at(9, 13), "y.jpg", vec, None, None)
+    uid = service.on_unknown(at(9, 12), "x.jpg", person_vector(3), "C", 0.38)
+    service.on_unknown(at(9, 13), "y.jpg", person_vector(20), None, None)
     run_until(service, clock, at(9, 20))
     unknown_msgs = [m for m in sent if m.startswith("❓")]
-    assert len(unknown_msgs) == 1 and "2 unidentified faces" in unknown_msgs[0] and "/unknowns" in unknown_msgs[0]
+    assert len(unknown_msgs) == 1 and "2 different faces" in unknown_msgs[0] and "/unknowns" in unknown_msgs[0]
 
     run_until(service, clock, at(10, 5))
     assert "Carol" in [m for m in sent if m.startswith("⏰")][0]

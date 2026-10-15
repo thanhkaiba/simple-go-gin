@@ -5,6 +5,7 @@ import csv
 import datetime as dt
 import hmac
 import io
+import re
 import secrets
 import time
 from pathlib import Path
@@ -41,6 +42,19 @@ def _time(value: str) -> dt.time:
         raise ValueError("enter the time as HH:MM") from None
 
 
+def _next_id(people) -> str:
+    """Suggest the next employee id, following the existing ones (NV007 -> NV008)."""
+    best = None
+    for p in people:
+        m = re.fullmatch(r"(.*?)(\d+)", p.id)
+        if m and (best is None or int(m.group(2)) > int(best.group(2))):
+            best = m
+    if best is None:
+        return ""
+    digits = best.group(2)
+    return f"{best.group(1)}{int(digits) + 1:0{len(digits)}d}"
+
+
 def create_app(core: "App") -> Flask:
     cfg, store, service, library, live = core.cfg, core.store, core.service, core.library, core.live
     app = Flask(__name__)
@@ -71,7 +85,7 @@ def create_app(core: "App") -> Flask:
 
     @app.context_processor
     def common():
-        return {"pending": len(store.unknowns()), "nav": request.endpoint, "SOURCES": SOURCES,
+        return {"pending": store.pending_group_count(), "nav": request.endpoint, "SOURCES": SOURCES,
                 "leave_label": lambda kind: LEAVE_KINDS.get(kind, kind), "WEEKDAYS": WEEKDAYS}
 
     def leave_status() -> dict:
@@ -131,9 +145,16 @@ def create_app(core: "App") -> Flask:
 
     @app.get("/unknowns")
     def unknowns():
-        items = sorted(store.unknowns(), key=lambda u: u.ts, reverse=True)
-        return render_template("unknowns.html", items=items, employees=store.employees(),
-                               local=lambda ts: ts.astimezone(service.tz))
+        groups = []
+        for members in store.pending_groups():
+            guesses = [u for u in members if u.guess_id in store.employees()]
+            best = max(guesses, key=lambda u: u.guess_score or 0) if guesses else None
+            groups.append({"id": members[-1].id, "members": members, "latest": members[-1],
+                           "photos": [u.image for u in reversed(members) if u.image][:6],
+                           "guess": best.guess_id if best else None, "guess_score": best.guess_score if best else None})
+        return render_template("unknowns.html", groups=groups, employees=store.employees(),
+                               local=lambda ts: ts.astimezone(service.tz), next_id=_next_id(store.all_employees()),
+                               no_photos=not core.gallery.counts())
 
     @app.post("/unknowns/<int:unknown_id>/assign")
     def assign(unknown_id: int):
@@ -141,7 +162,17 @@ def create_app(core: "App") -> Flask:
             service.resolve_unknown(unknown_id, request.form.get("employee_id", ""), user())
         except ValueError as exc:
             return failed(str(exc), "unknowns")
-        return done("Arrival recorded and face learned.", "unknowns")
+        return done(f"Confirmed as {store.employees().get(request.form.get('employee_id', ''), '')}; face learned.", "unknowns")
+
+    @app.post("/unknowns/<int:unknown_id>/new-employee")
+    def new_employee_from_face(unknown_id: int):
+        emp_id, name = request.form.get("id", "").strip(), request.form.get("name", "").strip()
+        try:
+            service.add_employee_from_unknown(unknown_id, emp_id, name, user())
+        except ValueError as exc:
+            return failed(str(exc), "unknowns")
+        flash(f"{name} added as a new employee and their face learned.", "ok")
+        return redirect(url_for("unknowns"))
 
     @app.post("/unknowns/<int:unknown_id>/ignore")
     def ignore(unknown_id: int):

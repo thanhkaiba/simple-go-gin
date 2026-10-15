@@ -34,6 +34,8 @@ FLUSH_EVERY = dt.timedelta(seconds=30)
 # An unknown face that resembles someone already checked in today is most likely that person
 # walking past again at a bad angle; reporting it would only create work for the admin.
 ALREADY_SEEN_SIMILARITY = 0.3
+GROUP_WITHIN = dt.timedelta(days=14)  # unknown faces are grouped with similar ones seen this recently
+MAX_LEARNED_PER_GROUP = 5  # reference photos taken from one confirmed group
 
 SOURCES = {"camera": "Camera", "admin": "Admin confirmed photo", "manual": "Entered by admin",
            "corrected": "Corrected by admin"}
@@ -190,35 +192,74 @@ class AttendanceService:
             log.info("Unclear face at %s resembles %s, who is already checked in; not reported",
                      ts.strftime("%H:%M:%S"), guess_id)
             return None
-        log.info("Unknown face at %s (closest %s %.2f)", ts.strftime("%H:%M:%S"), guess_id, guess_score or 0)
-        return self.store.add_unknown(ts.date(), ts, image, self.model_id, vector, guess_id, guess_score)
+        group_id = self._find_group(vector, ts)
+        log.info("Unknown face at %s (closest %s %.2f, group %s)", ts.strftime("%H:%M:%S"), guess_id,
+                 guess_score or 0, group_id or "new")
+        return self.store.add_unknown(ts.date(), ts, image, self.model_id, vector, guess_id, guess_score, group_id)
+
+    def _find_group(self, vector: np.ndarray | None, ts: dt.datetime) -> int | None:
+        """The group of the most similar pending unknown face, if it is clearly the same person.
+        This way someone not enrolled yet shows up once to review, however often they pass."""
+        if vector is None:
+            return None
+        v = vector / max(float(np.linalg.norm(vector)), 1e-12)
+        best, best_score = None, self.cfg.recognition.accept_score
+        for u in self.store.unknowns():
+            if u.vector is None or u.model != self.model_id or ts - self._local(u.ts) > GROUP_WITHIN:
+                continue
+            score = float(np.dot(v, u.vector / max(float(np.linalg.norm(u.vector)), 1e-12)))
+            if score >= best_score:
+                best, best_score = u.group_id, score
+        return best
 
     # admin actions -------------------------------------------------------------
 
-    def resolve_unknown(self, unknown_id: int, employee_id: str, user: str = "admin") -> None:
-        """Admin says this unknown face is `employee_id`: learn the face and count the arrival."""
+    def _pending_group(self, unknown_id: int) -> list:
         u = self.store.unknown(unknown_id)
-        if u is None or u.status != "pending":
+        members = self.store.group(u.group_id) if u is not None and u.status == "pending" else []
+        if not members:
             raise ValueError("this face has already been handled")
+        return members
+
+    def resolve_unknown(self, unknown_id: int, employee_id: str, user: str = "admin") -> None:
+        """Admin says this face (and every face grouped with it) is `employee_id`: learn the face and
+        record the arrivals."""
         if employee_id not in self.store.employees():
             raise ValueError(f"unknown employee {employee_id}")
-        self.store.resolve_unknown(unknown_id, "assigned", employee_id)
-        if u.vector is not None and u.model:
+        members = self._pending_group(unknown_id)
+        self.store.resolve_group(members[0].group_id, "assigned", employee_id)
+        with_vector = [u for u in members if u.vector is not None and u.model]
+        # Learn a few faces spread over the group (different visits, angles and light).
+        step = max(1, len(with_vector) // MAX_LEARNED_PER_GROUP)
+        for u in with_vector[::step][:MAX_LEARNED_PER_GROUP]:
             if self.library is not None:
                 self.library.learn(employee_id, u.vector, u.image, u.model)
             else:
                 self.store.add_embedding(u.model, employee_id, u.vector, "admin", self.now())
                 if u.model == self.model_id:
                     self.gallery.add(employee_id, u.vector)
-        ts = self._local(u.ts)
-        result = self.store.record_checkin(ts.date(), employee_id, ts, "admin", u.guess_score, u.image)
-        self.store.log(self.now(), user, "confirm face", f"{ts:%Y-%m-%d %H:%M} -> {self._name(employee_id)}")
-        if result in ("new", "earlier"):
-            self._announce(employee_id, ts, suffix=" (confirmed by admin)")
+        today = self.now().date()
+        for u in members:
+            ts = self._local(u.ts)
+            result = self.store.record_checkin(ts.date(), employee_id, ts, "admin", u.guess_score, u.image)
+            # Earlier days are corrected quietly; only today's arrival is posted.
+            if result in ("new", "earlier") and ts.date() == today:
+                self._announce(employee_id, ts, suffix=" (confirmed by admin)")
+        when = ", ".join(sorted({f"{self._local(u.ts):%Y-%m-%d %H:%M}" for u in members})[:5])
+        more = f" (+{len(members) - 5} more)" if len(members) > 5 else ""
+        self.store.log(self.now(), user, "confirm face", f"{self._name(employee_id)}: {when}{more}")
+
+    def add_employee_from_unknown(self, unknown_id: int, employee_id: str, name: str, user: str = "admin") -> None:
+        """Create a new employee from a face the camera collected, and confirm it as them."""
+        self._pending_group(unknown_id)
+        self.store.add_employee(employee_id, name)
+        self.store.log(self.now(), user, "add employee", f"{employee_id.strip()} {name.strip()} (from camera)")
+        self.resolve_unknown(unknown_id, employee_id.strip(), user)
 
     def ignore_unknown(self, unknown_id: int, user: str = "admin") -> None:
-        self.store.resolve_unknown(unknown_id, "ignored", None)
-        self.store.log(self.now(), user, "ignore face", f"unknown #{unknown_id}")
+        members = self._pending_group(unknown_id)
+        self.store.resolve_group(members[0].group_id, "ignored", None)
+        self.store.log(self.now(), user, "ignore face", f"{len(members)} photo(s) from {self._local(members[0].ts):%Y-%m-%d %H:%M}")
 
     def set_arrival(self, day: dt.date, employee_id: str, time: dt.time, user: str = "admin") -> None:
         """Enter or change an arrival time by hand."""
@@ -292,7 +333,7 @@ class AttendanceService:
                 rep.no_photos.append((emp_id, name))
         rep.on_time.sort(key=lambda a: a.ts)
         rep.late.sort(key=lambda a: a.ts)
-        rep.pending_unknowns = len(self.store.unknowns(day))
+        rep.pending_unknowns = self.store.pending_group_count(day)
         now = self.now()
         rep.outages = self._outages(day, now)
         rep.no_camera_data = (workday and (day < now.date() or now >= w.start)
@@ -391,9 +432,11 @@ class AttendanceService:
         return PeriodReport(start, end, days, ranked)
 
     def unknown_text(self, unknowns) -> str:
-        times = ", ".join(self._local(u.ts).strftime("%H:%M") for u in unknowns)
-        return (f"❓ {len(unknowns)} unidentified faces ({times}). "
-                f"Please pick the right person: {self._link('/unknowns')}")
+        people = len({u.group_id for u in unknowns})
+        times = ", ".join(self._local(u.ts).strftime("%H:%M") for u in unknowns[:10])
+        who = "1 face" if people == 1 else f"{people} different faces"
+        return (f"❓ {who} to review, seen at {times}{'…' if len(unknowns) > 10 else ''}. "
+                f"Please say who it is: {self._link('/unknowns')}")
 
     # scheduler -----------------------------------------------------------------
 

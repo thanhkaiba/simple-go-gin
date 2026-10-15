@@ -11,6 +11,10 @@
   </div>
 </div>
 
+{% if people and not counts %}
+  <div class="alert info"><span>💡 <strong>No photos yet?</strong> You can upload photos for each person, or simply let the
+    camera run: everyone it sees appears under <a href="{{ url_for('unknowns') }}">To review</a>, where you name them once.</span></div>
+{% endif %}
 {% for p in look_alikes %}
   <div class="alert warn">⚠️ <span><a href="{{ url_for('employee', employee_id=p.a) }}">{{ names.get(p.a, p.a) }}</a> and
     <a href="{{ url_for('employee', employee_id=p.b) }}">{{ names.get(p.b, p.b) }}</a> have reference photos that look

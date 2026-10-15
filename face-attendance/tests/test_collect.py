@@ -1,0 +1,88 @@
+"""Starting without reference photos: the camera collects faces and the admin names them once."""
+import datetime as dt
+
+import numpy as np
+import pytest
+
+from attendance.web import _next_id, create_app
+from conftest import DAY, at, person_vector
+from test_service import run_until
+
+
+def near(person: int, seed: int) -> np.ndarray:
+    """Another photo of the same person: their vector plus a little noise."""
+    v = person_vector(person) + 0.25 * np.random.default_rng(seed).normal(size=512).astype(np.float32) / 22.6
+    return v / np.linalg.norm(v)
+
+
+def test_photos_of_the_same_person_are_grouped(env):
+    service, store, clock, _ = env
+    a1 = service.on_unknown(at(9, 1), None, near(30, 1), None, None)
+    a2 = service.on_unknown(at(9, 20), None, near(30, 2), None, None)
+    b1 = service.on_unknown(at(9, 21), None, near(31, 3), None, None)
+    service.on_unknown(at(9, 30, day=DAY + dt.timedelta(days=1)), None, near(30, 4), None, None)
+    groups = store.pending_groups()
+    assert sorted(len(g) for g in groups) == [1, 3]
+    assert store.unknown(a2).group_id == store.unknown(a1).group_id != store.unknown(b1).group_id
+    assert store.pending_group_count() == 2 and store.pending_group_count(DAY) == 2
+
+
+def test_confirming_a_group_learns_several_photos_and_records_every_day(env):
+    service, store, clock, sent = env
+    clock.t = at(9, 0, day=DAY + dt.timedelta(days=1))
+    ids = [service.on_unknown(at(9, m), None, near(30, m), None, None) for m in (5, 6, 7, 8, 9, 10, 11)]
+    service.on_unknown(at(9, 40, day=DAY + dt.timedelta(days=1)), None, near(30, 99), None, None)
+    service.resolve_unknown(ids[3], "B")
+    assert store.pending_group_count() == 0
+    assert len([r for r in store.references(service.model_id, "B") if r.source == "admin"]) == 5
+    assert store.checkins(DAY)["B"].first_seen == at(9, 5)  # earliest sighting of that day
+    assert store.checkins(DAY + dt.timedelta(days=1))["B"].first_seen == at(9, 40, day=DAY + dt.timedelta(days=1))
+    assert not any("Update" in m and "2026-10-14" in m for m in sent)  # past days are corrected quietly
+
+
+def test_new_employee_can_be_created_from_a_face(env):
+    service, store, clock, _ = env
+    uid = service.on_unknown(at(9, 5), None, near(40, 1), None, None)
+    service.on_unknown(at(9, 6), None, near(40, 2), None, None)
+    service.add_employee_from_unknown(uid, "D", "Dana")
+    assert store.employee("D").name == "Dana"
+    assert service.gallery.counts()["D"] == 2
+    assert "D" in store.checkins(DAY)
+    with pytest.raises(ValueError):
+        service.add_employee_from_unknown(uid, "E", "Eve")  # already handled
+    with pytest.raises(ValueError):
+        u2 = service.on_unknown(at(9, 7), None, near(41, 1), None, None)
+        service.add_employee_from_unknown(u2, "A", "Duplicate id")
+    assert store.unknown(u2).status == "pending"  # nothing changed when the id was taken
+
+
+def test_ignoring_hides_the_whole_group(env):
+    service, store, _, _ = env
+    uid = service.on_unknown(at(9, 5), None, near(50, 1), None, None)
+    service.on_unknown(at(9, 6), None, near(50, 2), None, None)
+    service.ignore_unknown(uid)
+    assert store.pending_groups() == []
+
+
+def test_review_page_groups_and_new_employee_form(core):
+    app, clock, _ = core
+    for m in (5, 6, 7):
+        app.service.on_unknown(at(9, m), None, near(60, m), None, None)
+    flask_app = create_app(app)
+    flask_app.testing = True
+    c = flask_app.test_client()
+    page = c.get("/unknowns").get_data(as_text=True)
+    assert "Seen 3 times" in page and "New employee" in page and 'value="D"' not in page
+    uid = app.store.pending_groups()[0][-1].id
+    resp = c.post(f"/unknowns/{uid}/new-employee", data={"id": "NV010", "name": "Linh"}, follow_redirects=True)
+    assert "Linh added as a new employee" in resp.get_data(as_text=True)
+    assert app.store.employee("NV010") and app.store.pending_group_count() == 0
+    assert '<span class="count">' not in c.get("/").get_data(as_text=True)
+
+
+def test_next_employee_id_suggestion():
+    from attendance.store import Employee
+
+    assert _next_id([Employee("NV007", "a", True), Employee("NV010", "b", True), Employee("boss", "c", True)]) == "NV011"
+    assert _next_id([Employee("12", "a", True)]) == "13"
+    assert _next_id([]) == ""

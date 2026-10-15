@@ -60,7 +60,12 @@ class Camera:
                 continue
             log.info("Camera connected")
             backoff = 1.0
+            # A recorded video file is played at its real speed, so it can stand in for the camera when testing.
+            is_file = isinstance(self.url, str) and "://" not in self.url
+            frame_gap = 1.0 / (cap.get(cv2.CAP_PROP_FPS) or 25.0) if is_file else 0.0
             while not self._stop.is_set():
+                if frame_gap:
+                    time.sleep(frame_gap)
                 ok, frame = cap.read()
                 if not ok:
                     log.warning("Camera stream interrupted, reconnecting")
