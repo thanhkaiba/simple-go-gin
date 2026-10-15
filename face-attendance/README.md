@@ -136,7 +136,7 @@ The menu at the top has everything:
   - **Grouping:** photos that look like the same person are grouped ("Seen 6 times"), so each person is named only once.
   - **Naming a group:** click **"✓ It's …"** for the suggested person, pick someone from the list, or click **+ New employee** to create them on the spot (the next id is suggested).
   - **What confirming does:** records the person's arrival on every day they were seen and teaches the system up to 5 of their photos.
-  - **Not an employee** hides a visitor's whole group.
+  - **Not an employee · ignore today:** hides a visitor for the rest of the day, including if they pass the camera again. If they come back on another day they are shown again; nothing is ignored for good. Ignored faces are listed under *Ignored today*, with a **Restore** button in case of a mistake.
 
   **Starting without any photos:** let the camera run for a day or two. Everyone who passes appears here; name each person once, and from then on the camera recognises them. Upload extra photos later for people it still finds hard.
 - **Employees:** search, add, or import from CSV. Open a person to drag and drop their photos (with a preview before uploading), see their upcoming leave, or stop tracking them.

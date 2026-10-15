@@ -192,25 +192,32 @@ class AttendanceService:
             log.info("Unclear face at %s resembles %s, who is already checked in; not reported",
                      ts.strftime("%H:%M:%S"), guess_id)
             return None
-        group_id = self._find_group(vector, ts)
-        log.info("Unknown face at %s (closest %s %.2f, group %s)", ts.strftime("%H:%M:%S"), guess_id,
-                 guess_score or 0, group_id or "new")
-        return self.store.add_unknown(ts.date(), ts, image, self.model_id, vector, guess_id, guess_score, group_id)
+        group_id, ignored = self._find_group(vector, ts)
+        if ignored:
+            log.info("Face at %s belongs to a group ignored today; not reported", ts.strftime("%H:%M:%S"))
+        else:
+            log.info("Unknown face at %s (closest %s %.2f, group %s)", ts.strftime("%H:%M:%S"), guess_id,
+                     guess_score or 0, group_id or "new")
+        return self.store.add_unknown(ts.date(), ts, image, self.model_id, vector, guess_id, guess_score,
+                                      group_id, ignored=ignored)
 
-    def _find_group(self, vector: np.ndarray | None, ts: dt.datetime) -> int | None:
-        """The group of the most similar pending unknown face, if it is clearly the same person.
-        This way someone not enrolled yet shows up once to review, however often they pass."""
+    def _find_group(self, vector: np.ndarray | None, ts: dt.datetime) -> tuple[int | None, bool]:
+        """(group, ignored): the group of the most similar unknown face if it is clearly the same person,
+        and whether that group was ignored today. This way someone not enrolled yet shows up once to
+        review however often they pass, and a visitor ignored today stays hidden for the rest of the day."""
         if vector is None:
-            return None
+            return None, False
         v = vector / max(float(np.linalg.norm(vector)), 1e-12)
-        best, best_score = None, self.cfg.recognition.accept_score
-        for u in self.store.unknowns():
+        candidates = [(u, False) for u in self.store.unknowns()]
+        candidates += [(u, True) for g in self.store.ignored_groups(ts.date()) for u in g]
+        best, best_ignored, best_score = None, False, self.cfg.recognition.accept_score
+        for u, ignored in candidates:
             if u.vector is None or u.model != self.model_id or ts - self._local(u.ts) > GROUP_WITHIN:
                 continue
             score = float(np.dot(v, u.vector / max(float(np.linalg.norm(u.vector)), 1e-12)))
             if score >= best_score:
-                best, best_score = u.group_id, score
-        return best
+                best, best_ignored, best_score = u.group_id, ignored, score
+        return best, best_ignored
 
     # admin actions -------------------------------------------------------------
 
@@ -257,9 +264,19 @@ class AttendanceService:
         self.resolve_unknown(unknown_id, employee_id.strip(), user)
 
     def ignore_unknown(self, unknown_id: int, user: str = "admin") -> None:
+        """Hide this face for today only: later sightings today are ignored too, but if the person
+        comes back on another day they are shown for review again. Nothing is remembered for good."""
         members = self._pending_group(unknown_id)
-        self.store.resolve_group(members[0].group_id, "ignored", None)
-        self.store.log(self.now(), user, "ignore face", f"{len(members)} photo(s) from {self._local(members[0].ts):%Y-%m-%d %H:%M}")
+        self.store.ignore_group(members[0].group_id, self.now().date())
+        self.store.log(self.now(), user, "ignore face (today)",
+                       f"{len(members)} photo(s) from {self._local(members[0].ts):%Y-%m-%d %H:%M}")
+
+    def restore_unknown(self, unknown_id: int, user: str = "admin") -> None:
+        """Undo today's ignore."""
+        u = self.store.unknown(unknown_id)
+        if u is None or not self.store.restore_group(u.group_id, self.now().date()):
+            raise ValueError("this face can no longer be restored")
+        self.store.log(self.now(), user, "restore face", f"from {self._local(u.ts):%Y-%m-%d %H:%M}")
 
     def set_arrival(self, day: dt.date, employee_id: str, time: dt.time, user: str = "admin") -> None:
         """Enter or change an arrival time by hand."""

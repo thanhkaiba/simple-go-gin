@@ -86,3 +86,44 @@ def test_next_employee_id_suggestion():
     assert _next_id([Employee("NV007", "a", True), Employee("NV010", "b", True), Employee("boss", "c", True)]) == "NV011"
     assert _next_id([Employee("12", "a", True)]) == "13"
     assert _next_id([]) == ""
+
+
+def test_ignore_lasts_only_for_the_day_and_can_be_undone(env):
+    service, store, clock, sent = env
+    clock.t = at(9, 10)
+    uid = service.on_unknown(at(9, 5), None, near(70, 1), None, None)
+    service.ignore_unknown(uid)
+    assert store.pending_groups() == []
+
+    # The visitor walks past again later that day: hidden, and no chat notice about it.
+    again = service.on_unknown(at(10, 30), None, near(70, 2), None, None)
+    assert store.unknown(again).status == "ignored" and store.pending_groups() == []
+    assert len(store.ignored_groups(DAY)[0]) == 2
+    run_until(service, clock, at(10, 45))
+    assert not any(m.startswith("❓") for m in sent)
+
+    # Undo by mistake: the whole group comes back for review.
+    service.restore_unknown(uid)
+    assert len(store.pending_groups()[0]) == 2 and store.ignored_groups(DAY) == []
+    service.ignore_unknown(uid)
+
+    # The next day the same person is shown for review again.
+    tomorrow = DAY + dt.timedelta(days=1)
+    clock.t = at(9, 0, day=tomorrow)
+    nxt = service.on_unknown(at(9, 5, day=tomorrow), None, near(70, 3), None, None)
+    assert store.unknown(nxt).status == "pending" and store.pending_group_count() == 1
+    with pytest.raises(ValueError):
+        service.restore_unknown(uid)  # yesterday's ignore can no longer be undone
+
+
+def test_review_page_shows_ignored_today_with_restore(core):
+    app, clock, _ = core
+    clock.t = at(9, 10)
+    uid = app.service.on_unknown(at(9, 5), None, near(80, 1), None, None)
+    flask_app = create_app(app)
+    flask_app.testing = True
+    c = flask_app.test_client()
+    page = c.post(f"/unknowns/{uid}/ignore", follow_redirects=True).get_data(as_text=True)
+    assert "Ignored for today" in page and "Ignored today (1)" in page
+    page = c.post(f"/unknowns/{uid}/restore", follow_redirects=True).get_data(as_text=True)
+    assert "Restored" in page and "Ignored today" not in page and app.store.pending_group_count() == 1

@@ -52,7 +52,8 @@ CREATE TABLE IF NOT EXISTS unknowns (
     status TEXT NOT NULL DEFAULT 'pending',
     employee_id TEXT,
     notified INTEGER NOT NULL DEFAULT 0,
-    group_id INTEGER  -- unknown faces that look like the same person share a group
+    group_id INTEGER,  -- unknown faces that look like the same person share a group
+    ignored_day TEXT   -- set when the admin ignored the face; ignoring only lasts that day
 );
 CREATE TABLE IF NOT EXISTS calendar (
     day TEXT PRIMARY KEY,
@@ -172,7 +173,7 @@ class Store:
 
     def _migrate(self) -> None:
         """Add columns introduced after a database was created."""
-        added = {"embeddings": [("image", "TEXT")], "unknowns": [("group_id", "INTEGER")]}
+        added = {"embeddings": [("image", "TEXT")], "unknowns": [("group_id", "INTEGER"), ("ignored_day", "TEXT")]}
         for table, columns in added.items():
             have = {r["name"] for r in self._db.execute(f"PRAGMA table_info({table})")}
             for name, kind in columns:
@@ -350,13 +351,15 @@ class Store:
 
     def add_unknown(self, day: dt.date, ts: dt.datetime, image: str | None, model: str | None,
                     vector: np.ndarray | None, guess_id: str | None, guess_score: float | None,
-                    group_id: int | None = None) -> int:
-        """Store an unidentified face; without a group it starts a new group of its own."""
+                    group_id: int | None = None, ignored: bool = False) -> int:
+        """Store an unidentified face; without a group it starts a new group of its own.
+        `ignored` stores it as already ignored for the day (its group was ignored earlier today)."""
         with self._lock, self._db:
             cur = self._db.execute(
-                "INSERT INTO unknowns (day, ts, image, model, vector, guess_id, guess_score, group_id) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                (day.isoformat(), ts.isoformat(), image, model, _blob(vector), guess_id, guess_score, group_id),
+                "INSERT INTO unknowns (day, ts, image, model, vector, guess_id, guess_score, group_id, status, "
+                "ignored_day) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (day.isoformat(), ts.isoformat(), image, model, _blob(vector), guess_id, guess_score, group_id,
+                 "ignored" if ignored else "pending", day.isoformat() if ignored else None),
             )
             if group_id is None:
                 self._db.execute("UPDATE unknowns SET group_id = id WHERE id = ?", (cur.lastrowid,))
@@ -377,6 +380,27 @@ class Store:
         rows = self._all("SELECT * FROM unknowns WHERE COALESCE(group_id, id) = ? AND status = 'pending' ORDER BY ts",
                          (group_id,))
         return [self._unknown(r) for r in rows]
+
+    def ignore_group(self, group_id: int, day: dt.date) -> None:
+        self._exec("UPDATE unknowns SET status = 'ignored', ignored_day = ? "
+                   "WHERE COALESCE(group_id, id) = ? AND status = 'pending'", (day.isoformat(), group_id))
+
+    def restore_group(self, group_id: int, day: dt.date) -> int:
+        """Undo today's ignore of a group; returns how many faces came back."""
+        cur = self._exec("UPDATE unknowns SET status = 'pending', ignored_day = NULL, notified = 1 "
+                         "WHERE COALESCE(group_id, id) = ? AND status = 'ignored' AND ignored_day = ?",
+                         (group_id, day.isoformat()))
+        return cur.rowcount
+
+    def ignored_groups(self, day: dt.date) -> list[list[Unknown]]:
+        """Groups ignored on `day`, most recently seen first."""
+        rows = self._all("SELECT * FROM unknowns WHERE status = 'ignored' AND ignored_day = ? ORDER BY ts",
+                         (day.isoformat(),))
+        groups: dict[int, list[Unknown]] = {}
+        for r in rows:
+            u = self._unknown(r)
+            groups.setdefault(u.group_id, []).append(u)
+        return sorted(groups.values(), key=lambda g: g[-1].ts, reverse=True)
 
     def resolve_group(self, group_id: int, status: str, employee_id: str | None) -> None:
         self._exec("UPDATE unknowns SET status = ?, employee_id = ? WHERE COALESCE(group_id, id) = ? AND status = 'pending'",

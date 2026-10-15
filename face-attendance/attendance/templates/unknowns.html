@@ -55,7 +55,7 @@
         </form>
       </details>
       <form method="post" action="{{ url_for('ignore', unknown_id=g.id) }}">
-        <button style="width:100%; justify-content:center" class="btn-sm">Not an employee (ignore{{ ' all' if g.members|length > 1 }})</button>
+        <button style="width:100%; justify-content:center" class="btn-sm" title="Hidden for the rest of today; shown again if seen on another day">Not an employee · ignore today</button>
       </form>
     </div>
   </div>
@@ -63,5 +63,26 @@
 </div>
 {% else %}
 <div class="card empty-state">✓ Nothing to review.</div>
+{% endif %}
+
+{% if ignored %}
+<details class="panel" style="margin-top:20px">
+  <summary>Ignored today ({{ ignored|length }})</summary>
+  <div>
+    <p class="hint" style="margin-top:0">These faces are hidden until the end of today, including if they pass the camera
+      again. Tomorrow they are shown again if seen. Restore one if it was ignored by mistake.</p>
+    <div class="tiles" style="grid-template-columns: repeat(auto-fill, minmax(150px, 1fr))">
+      {% for g in ignored %}
+      <div class="card" style="margin:0; padding:0; overflow:hidden">
+        {% if g.photo %}<img src="{{ url_for('media', path=g.photo) }}" alt="" style="width:100%; aspect-ratio:1; object-fit:cover; display:block; opacity:.75">{% endif %}
+        <div style="padding:8px; display:grid; gap:6px">
+          <span class="small muted">{{ local(g.latest.ts).strftime('%H:%M') }}{% if g.count > 1 %} · seen {{ g.count }} times{% endif %}</span>
+          <form method="post" action="{{ url_for('restore', unknown_id=g.id) }}"><button class="btn-sm" style="width:100%; justify-content:center">↺ Restore</button></form>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</details>
 {% endif %}
 {% endblock %}

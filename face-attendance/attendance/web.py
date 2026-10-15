@@ -152,7 +152,10 @@ def create_app(core: "App") -> Flask:
             groups.append({"id": members[-1].id, "members": members, "latest": members[-1],
                            "photos": [u.image for u in reversed(members) if u.image][:6],
                            "guess": best.guess_id if best else None, "guess_score": best.guess_score if best else None})
-        return render_template("unknowns.html", groups=groups, employees=store.employees(),
+        ignored = [{"id": g[-1].id, "count": len(g), "latest": g[-1],
+                    "photo": next((u.image for u in reversed(g) if u.image), None)}
+                   for g in store.ignored_groups(service.now().date())]
+        return render_template("unknowns.html", groups=groups, ignored=ignored, employees=store.employees(),
                                local=lambda ts: ts.astimezone(service.tz), next_id=_next_id(store.all_employees()),
                                no_photos=not core.gallery.counts())
 
@@ -176,8 +179,20 @@ def create_app(core: "App") -> Flask:
 
     @app.post("/unknowns/<int:unknown_id>/ignore")
     def ignore(unknown_id: int):
-        service.ignore_unknown(unknown_id, user())
-        return done("Ignored.", "unknowns")
+        try:
+            service.ignore_unknown(unknown_id, user())
+        except ValueError as exc:
+            return failed(str(exc), "unknowns")
+        return done("Ignored for today. If this person comes back on another day, they will be shown again.",
+                    "unknowns")
+
+    @app.post("/unknowns/<int:unknown_id>/restore")
+    def restore(unknown_id: int):
+        try:
+            service.restore_unknown(unknown_id, user())
+        except ValueError as exc:
+            return failed(str(exc), "unknowns")
+        return done("Restored to the review list.", "unknowns")
 
     # employees ---------------------------------------------------------------------
 
