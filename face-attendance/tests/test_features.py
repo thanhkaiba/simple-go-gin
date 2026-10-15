@@ -220,3 +220,82 @@ def test_days_without_camera_data_are_flagged(env):
     assert not service.report(DAY).no_camera_data
     assert service.report(DAY - dt.timedelta(days=1)).no_camera_data
     assert not service.report(DAY + dt.timedelta(days=1)).no_camera_data  # the future is not "missing"
+
+
+def test_correcting_a_wrong_sighting_brings_back_the_real_later_arrival(env):
+    """Alice was taken for Bob at 9:20; Bob really came at 10:15. Before sightings were kept,
+    Bob's real arrival was dropped (he 'already had' 9:20) and moving 9:20 to Alice left him
+    'not seen'. Now his arrival is recomputed from his remaining sightings: late."""
+    service, store, clock, sent = env
+    run_until(service, clock, at(10, 20))
+    service.on_identified("B", at(9, 20), 0.6, "crops/alice.jpg")   # wrong: it was Alice
+    service.on_identified("B", at(10, 15), 0.9, "crops/bob.jpg")    # Bob himself
+    assert store.checkins(DAY)["B"].first_seen == at(9, 20)
+    assert len(store.sightings(DAY, "B")) == 2
+
+    service.reassign_arrival(DAY, "B", "A", user="hr")
+    arrivals = store.checkins(DAY)
+    assert arrivals["A"].first_seen == at(9, 20) and arrivals["A"].source == "corrected"
+    assert arrivals["B"].first_seen == at(10, 15) and arrivals["B"].image == "crops/bob.jpg"
+    assert sent[-2:] == ["🟠 @Bob arrived at 10:15, 15 min late (corrected by admin).",
+                         "✅ Update: *Alice* arrived at 09:20 (corrected by admin), not late."]
+    assert [d.employee_id for d in service.report(DAY).late] == ["B"]
+
+
+def test_rejecting_and_restoring_single_sightings(env):
+    service, store, clock, sent = env
+    run_until(service, clock, at(10, 20))
+    service.on_identified("C", at(9, 5), 0.5, None)    # a visitor taken for Carol
+    service.on_identified("C", at(9, 40), 0.9, None)   # Carol
+    first = store.sightings(DAY, "C")[0]
+    service.reject_sighting(first.id, user="hr")
+    assert store.checkins(DAY)["C"].first_seen == at(9, 40)
+    assert [s.status for s in store.sightings(DAY, "C")] == ["rejected", "ok"]
+    service.restore_sighting(first.id, user="hr")
+    assert store.checkins(DAY)["C"].first_seen == at(9, 5)
+
+    # Deleting the arrival removes everything so far; a later real sighting counts again.
+    service.delete_arrival(DAY, "C", user="hr")
+    assert "C" not in store.checkins(DAY)
+    service.on_identified("C", at(10, 25), 0.9, None)
+    assert store.checkins(DAY)["C"].first_seen == at(10, 25)
+
+
+def test_typed_arrival_time_wins_over_the_camera(env):
+    service, store, clock, sent = env
+    run_until(service, clock, at(10, 20))
+    service.on_identified("A", at(9, 5), 0.6, None)
+    service.set_arrival(DAY, "A", dt.time(10, 5), user="hr")
+    service.on_identified("A", at(9, 50), 0.9, None)   # later camera sightings do not undo it
+    assert store.checkins(DAY)["A"].first_seen == at(10, 5)
+    service.set_arrival(DAY, "A", dt.time(9, 30), user="hr")
+    assert store.checkins(DAY)["A"].first_seen == at(9, 30)
+
+
+def test_old_databases_get_their_arrivals_as_sightings(tmp_path):
+    import sqlite3
+
+    from attendance.store import Store
+
+    db = sqlite3.connect(tmp_path / "a.db")
+    db.execute("CREATE TABLE checkins (day TEXT NOT NULL, employee_id TEXT NOT NULL, first_seen TEXT NOT NULL, "
+               "source TEXT NOT NULL, score REAL, image TEXT, PRIMARY KEY (day, employee_id))")
+    db.execute("INSERT INTO checkins VALUES (?, 'A', ?, 'camera', 0.8, 'crops/a.jpg')",
+               (DAY.isoformat(), at(9, 10).isoformat()))
+    db.commit()
+    db.close()
+    store = Store(tmp_path / "a.db")
+    [s] = store.sightings(DAY, "A")
+    assert s.ts == at(9, 10) and s.image == "crops/a.jpg"
+    assert store.record_checkin(DAY, "A", at(9, 30), "camera", 0.9, None) == "unchanged"
+
+
+def test_learning_skips_faces_nearly_identical_to_a_kept_one(core):
+    from conftest import person_vector
+
+    app, clock, _ = core
+    lib, model = app.library, app.cfg.recognition.model_id()
+    assert not lib.learn("A", person_vector(1), None, model)  # same as Alice's reference
+    other = person_vector(1) + 0.5 * person_vector(50)
+    assert lib.learn("A", other / np.linalg.norm(other), None, model)
+    assert app.gallery.counts()["A"] == 2

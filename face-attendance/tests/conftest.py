@@ -44,7 +44,7 @@ def person_vector(person: int) -> np.ndarray:
 class FakeRecognizer:
     """Pretends every image holds one face; its brightness says whose (0 = no face)."""
 
-    def largest_face(self, image):
+    def largest_face(self, image, mirror=False):
         person = int(round(float(image.mean()) / 10))
         if person == 0:
             return None

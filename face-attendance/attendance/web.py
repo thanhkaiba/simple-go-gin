@@ -124,7 +124,16 @@ def create_app(core: "App") -> Flask:
         today = service.now().date()
         day = _date(request.args.get("day"), today)
         rep = service.report(day)
-        return render_template("index.html", rep=rep, employees=store.employees(),
+        sightings: dict[str, list[dict]] = {}
+        arrivals = store.checkins(day)
+        for x in store.sightings(day):
+            a = arrivals.get(x.employee_id)
+            sightings.setdefault(x.employee_id, []).append({
+                "id": x.id, "time": f"{service._local(x.ts):%H:%M:%S}", "ok": x.status == "ok",
+                "arrival": bool(a and x.status == "ok" and a.first_seen == x.ts and a.source == x.source),
+                "source": SOURCES.get(x.source, x.source), "score": round(x.score * 100) if x.score else None,
+                "image": url_for("media", path=x.image) if x.image else None})
+        return render_template("index.html", rep=rep, employees=store.employees(), sightings=sightings,
                                late=lambda a: minutes_late(a, rep.window), today=today,
                                prev_day=day - dt.timedelta(days=1), next_day=day + dt.timedelta(days=1),
                                leave=leave_status(), started=service.now() >= rep.window.start, late_msg=late_message_status(day))
@@ -155,6 +164,24 @@ def create_app(core: "App") -> Flask:
         except ValueError as exc:
             return failed(str(exc), "index", day=day)
         return done("Arrival deleted.", "index", day=day)
+
+    @app.post("/sighting/<int:sighting_id>/<action>")
+    def change_sighting(sighting_id: int, action: str):
+        s = store.sighting(sighting_id)
+        day = s.day.isoformat() if s else None
+        try:
+            if action == "move":
+                service.move_sighting(sighting_id, request.form.get("to", ""), user())
+            elif action == "reject":
+                service.reject_sighting(sighting_id, user())
+            elif action == "restore":
+                service.restore_sighting(sighting_id, user())
+            else:
+                abort(404)
+        except ValueError as exc:
+            return failed(str(exc), "index", day=day)
+        return done({"move": "Sighting moved to the right person.", "reject": "Sighting removed.",
+                     "restore": "Sighting restored."}[action], "index", day=day)
 
     @app.post("/day/<day>/late-message")
     def send_late_message(day: str):

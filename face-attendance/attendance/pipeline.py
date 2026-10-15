@@ -38,7 +38,7 @@ class App:
         if self.store.employee_count() == 0 and employees_file.exists():
             n = self.store.import_employees(employees_file.read_text(encoding="utf-8-sig"))
             log.info("Imported %d employees from %s", n, employees_file)
-        self.gallery = Gallery(self.store.embeddings(cfg.recognition.model_id()))
+        self.gallery = Gallery(self.store.embeddings(cfg.recognition.model_id()), cfg.recognition.center_embeddings)
         self.chat = GoogleChat(lambda: cfg.google_chat.webhook_url, self.store)
         self.service = AttendanceService(cfg, self.store, self.chat, self.gallery, now=now)
         self.recognizer_lock = threading.Lock()
@@ -131,6 +131,13 @@ def draw(frame, labelled, people=()) -> bytes:
     return encode_jpeg(canvas)
 
 
+def _grow(bbox, shape, by: float = 0.5):
+    """A face box made larger, so the face is still inside it a fraction of a second later."""
+    x1, y1, x2, y2 = bbox
+    dx, dy = (x2 - x1) * by, (y2 - y1) * by
+    return max(0, x1 - dx), max(0, y1 - dy), min(shape[1], x2 + dx), min(shape[0], y2 + dy)
+
+
 def run(cfg: Config) -> None:
     from .camera import Camera
     from .processing import FrameProcessor
@@ -162,9 +169,10 @@ def run(cfg: Config) -> None:
         log.warning("No reference photos for: %s", ", ".join(missing))
 
     processor = FrameProcessor(app)
+    face_regions: list = []  # where faces were in the last analysed frame
     health = FrameHealth()
     camera: Camera | None = None
-    last_processed = last_ping = last_tick = 0.0
+    last_processed = last_chosen = last_ping = last_tick = 0.0
     fps_count, fps_since = 0, time.time()
     was_in_window = False
 
@@ -201,7 +209,9 @@ def run(cfg: Config) -> None:
                 live.camera_state = "no picture (reconnecting)" if camera.started_for() > 10 else "connecting"
                 time.sleep(0.05)
             elif frame_time - last_processed >= 1.0 / cfg.camera.process_fps:
-                last_processed = frame_time
+                last_processed = frame_time  # paces the analysis on the newest frame
+                frame, frame_time = camera.sharpest(last_chosen, face_regions)
+                last_chosen = frame_time
                 problem = health.update(frame, frame_time)
                 camera_ok = problem is None
                 live.camera_state = f"problem: {problem}" if problem else "ok"
@@ -212,6 +222,7 @@ def run(cfg: Config) -> None:
                 handle(decisions)
                 if processor.person_error and live.problem is None:
                     live.problem = processor.person_error
+                face_regions = [_grow(f.bbox, frame.shape) for f, _, _ in matched]
                 labelled = [(f, face_label(app, f, c)) for f, c, _ in matched]
                 live.faces = [text for _, (text, _) in labelled]
                 live.people = len(people)

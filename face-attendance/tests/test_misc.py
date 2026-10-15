@@ -49,7 +49,7 @@ def test_outbox_drops_messages_older_than_a_day(tmp_path):
 
 def test_config_loads_example_and_quoted_or_unquoted_times(tmp_path):
     cfg = config.load(__file__.rsplit("/tests/", 1)[0] + "/config.example.yaml")
-    assert cfg.schedule.clocks() == (dt.time(9), dt.time(10), dt.time(11))
+    assert cfg.schedule.clocks() == (dt.time(8), dt.time(10), dt.time(11))
     p = tmp_path / "c.yaml"
     p.write_text("schedule:\n  window_start: 09:00\n  late_after: 10:00\n  window_end: 11:30\n")
     assert config.load(p).schedule.clocks() == (dt.time(9), dt.time(10), dt.time(11, 30))
@@ -157,3 +157,59 @@ def test_config_checks_detector_size(tmp_path):
         config.load(p)
     p.write_text("recognition:\n  backend: opencv\n  det_size: 500\n")
     assert config.load(p).recognition.det_size == 500
+
+
+def test_sharpest_buffered_frame_is_picked_where_the_faces_are():
+    import time
+
+    import cv2
+
+    from attendance.camera import Camera, focus
+
+    rng = np.random.default_rng(1)
+    sharp = np.zeros((240, 320, 3), np.uint8)
+    sharp[80:160, 100:180] = rng.integers(0, 255, (80, 80, 1), dtype=np.uint8)  # detailed "face"
+    blurred = cv2.GaussianBlur(sharp, (21, 21), 8)
+    face = [(90, 70, 190, 170)]
+    assert focus(sharp, face) > 5 * focus(blurred, face)
+
+    cam = Camera("0")
+    now = time.time()
+    frames = [(blurred, now - 0.3), (sharp, now - 0.2), (blurred.copy(), now - 0.1)]
+    cam._recent.extend(frames)
+    cam._frame, cam._frame_time = frames[-1]
+    frame, t = cam.sharpest(now - 1, face)
+    assert frame is sharp and t == now - 0.2
+    assert cam.sharpest(now - 0.15, face)[1] == now - 0.1   # only frames newer than the last analysed
+    assert cam.sharpest(now - 1, ())[0] is frames[-1][0]    # no faces: just the newest frame
+
+
+def test_centering_removes_the_shared_direction_and_needs_enough_people():
+    from attendance.gallery import MIN_PEOPLE_TO_CENTER
+
+    rng = np.random.default_rng(3)
+    shared = rng.normal(size=64)
+    shared /= np.linalg.norm(shared)
+    people = {f"P{i}": rng.normal(size=64) for i in range(10)}
+    items = []
+    for p, v in people.items():
+        for _ in range(3):
+            e = 0.8 * shared + 0.6 * (v / np.linalg.norm(v)) + 0.05 * rng.normal(size=64)
+            items.append((p, e / np.linalg.norm(e)))
+    raw, centered = Gallery(items), Gallery(items, center=True)
+    probe = items[0][1]
+    # Raw cosine: strangers look alike because everyone leans the same way.
+    assert raw.match(probe, k=2)[1][1] > 0.5
+    assert centered.centered and centered.match(probe)[0][0] == "P0"
+    assert centered.match(probe, k=2)[1][1] < 0.3
+    assert not Gallery(items[: 3 * (MIN_PEOPLE_TO_CENTER - 1)], center=True).centered
+
+
+def test_visit_votes_like_the_live_tracker():
+    from attendance.evaluate import visits
+
+    frames = [Sample("A", "A", 0.6, 0.1, "walk1")] * 3 + [Sample("A", "B", 0.6, 0.1, "walk1")]
+    frames += [Sample("B", "A", 0.6, 0.1, "walk2"), Sample("B", "B", 0.6, 0.1, "walk2")]  # split vote
+    frames += [Sample(None, "A", 0.3, 0.1, "stranger")]  # rejected: below threshold
+    r = visits(frames, 0.5, 0.08, votes_required=3)
+    assert (r.correct, r.wrong, r.rejected, r.employees) == (1, 0, 2, 2)

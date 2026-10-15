@@ -36,7 +36,7 @@ def check_late_message_item(item: str) -> None:
 
 @dataclass
 class ScheduleConfig:
-    window_start: str = "09:00"  # camera starts processing
+    window_start: str = "08:00"  # camera starts processing
     late_after: str = "10:00"  # first seen at or after this time counts as late
     window_end: str = "11:00"  # camera stops processing, daily summary is sent
     work_days: list[int] = field(default_factory=lambda: [0, 1, 2, 3, 4])  # Monday = 0
@@ -65,6 +65,9 @@ class RecognitionConfig:
     recognizer_model: str = ""
     det_size: int = 640
     use_gpu: bool = False
+    # Threads for the models (and OpenCV). 0 = all CPUs but one, which is left for the video
+    # decoder and the admin page, so frames are not dropped while a frame is being analysed.
+    cpu_threads: int = 0
     # Quality gate: frames failing it never vote, they can only end up as "unknown".
     min_face_px: int = 60
     min_det_score: float = 0.65
@@ -73,6 +76,9 @@ class RecognitionConfig:
     max_pitch: float = 30.0
     # Decision: tune accept_score and min_margin with `python -m attendance evaluate`.
     accept_score: float = 0.45
+    # Remove the direction all face embeddings share before comparing (see gallery.py). Scores
+    # get lower, so set accept_score again from `evaluate`, which compares both ways.
+    center_embeddings: bool = False
     min_margin: float = 0.08
     votes_required: int = 3
     track_timeout_s: float = 1.5
@@ -196,6 +202,8 @@ class Config:
         else:
             lm.send_at = ""
         check_late_message_item(lm.item)
+        if not 0 <= self.recognition.cpu_threads <= 64:
+            raise ValueError("recognition.cpu_threads must be between 0 (automatic) and 64")
         t = self.tracking
         if t.mode not in ("face", "person"):
             raise ValueError("tracking.mode must be face or person")

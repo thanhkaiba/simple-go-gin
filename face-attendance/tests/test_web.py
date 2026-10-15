@@ -197,3 +197,24 @@ def test_pages_have_day_navigation_and_report_ranges(core):
     assert "/?day=2026-10-13" in page and "/?day=2026-10-15" in page
     report = c.get("/report").get_data(as_text=True)
     assert "This month" in report and "Last month" in report and "start=2026-09-01" in report
+
+
+def test_single_sightings_can_be_fixed_from_the_page(core):
+    app, clock, _ = core
+    c = client(app)
+    clock.t = at(10, 30)
+    app.service.on_identified("A", at(9, 5), 0.6, None)
+    app.service.on_identified("A", at(9, 50), 0.9, None)
+    page = c.get(f"/?day={DAY}").get_data(as_text=True)
+    assert "09:05:00" in page and "09:50:00" in page
+    first, second = app.store.sightings(DAY, "A")
+    c.post(f"/sighting/{first.id}/move", data={"to": "B"})
+    assert app.store.checkins(DAY)["A"].first_seen == at(9, 50)
+    assert app.store.checkins(DAY)["B"].first_seen == at(9, 5)
+    c.post(f"/sighting/{second.id}/reject")
+    assert "A" not in app.store.checkins(DAY)
+    c.post(f"/sighting/{second.id}/restore")
+    assert app.store.checkins(DAY)["A"].first_seen == at(9, 50)
+    resp = c.post("/sighting/999/reject", follow_redirects=True)
+    assert "no longer exists" in resp.get_data(as_text=True)
+    assert "move sighting" in c.get("/audit").get_data(as_text=True)

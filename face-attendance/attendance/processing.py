@@ -35,7 +35,7 @@ class FrameProcessor:
         if self._detector is None and self.person_error is None:
             try:
                 self._detector = PersonDetector(self.cfg.path(self.cfg.tracking.person_model),
-                                                self.cfg.recognition.use_gpu)
+                                                self.cfg.recognition.use_gpu, self.cfg.recognition.cpu_threads)
                 log.info("Person tracking on (%s model)", self._detector.kind)
             except Exception as exc:  # missing or unsupported model: keep working with faces only
                 self.person_error = f"Person tracking is off: {exc}"

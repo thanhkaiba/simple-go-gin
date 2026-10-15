@@ -24,6 +24,7 @@ log = logging.getLogger(__name__)
 
 MIN_FACE_PX = 40
 MIN_DET_SCORE = 0.5
+NEAR_DUPLICATE = 0.97  # a learned face this similar to a kept one is not stored again
 
 
 @dataclass
@@ -78,7 +79,7 @@ class FaceLibrary:
 
     def _largest_face(self, image):
         with self._lock:
-            return self._recognizer().largest_face(image)
+            return self._recognizer().largest_face(image, mirror=True)
 
     def _save(self, employee_id: str, jpeg: bytes) -> str:
         rel = Path("faces") / employee_id / f"{self._now():%Y%m%d%H%M%S}_{uuid.uuid4().hex[:6]}.jpg"
@@ -111,14 +112,21 @@ class FaceLibrary:
                         f"Check the photos on the Employees page.")
         return AddResult(True, f"Photo added for {name}.", warnings)
 
-    def learn(self, employee_id: str, vector: np.ndarray, snapshot: str | None, model: str) -> None:
-        """Keep a face confirmed by the admin as a reference (copying the snapshot out of crops/)."""
+    def learn(self, employee_id: str, vector: np.ndarray, snapshot: str | None, model: str) -> bool:
+        """Keep a face confirmed by the admin as a reference (copying the snapshot out of crops/).
+        A face almost identical to one already kept adds nothing and is skipped, so the references
+        stay varied instead of filling up with the same pose. Returns whether it was kept."""
+        v = vector / max(float(np.linalg.norm(vector)), 1e-12)
+        for ref in self.store.references(model, employee_id):
+            if float(np.dot(v, ref.vector / max(float(np.linalg.norm(ref.vector)), 1e-12))) >= NEAR_DUPLICATE:
+                return False
         image_rel = None
         if snapshot and (self.data_dir / snapshot).exists():
             image_rel = self._save(employee_id, (self.data_dir / snapshot).read_bytes())
         self.store.add_embedding(model, employee_id, vector, "admin", self._now(), image_rel)
         if model == self.model_id:
             self.gallery.add(employee_id, vector)
+        return True
 
     def delete_photo(self, image_rel: str) -> None:
         self.store.delete_reference_image(image_rel)
@@ -160,6 +168,7 @@ class FaceLibrary:
     def similar_to(self, employee_id: str, vector: np.ndarray) -> list[tuple[str, float]]:
         threshold = self.cfg.recognition.accept_score
         out = []
+        vector = self.gallery.prepare(vector)
         for other, refs in self.gallery.snapshot().items():
             if other == employee_id:
                 continue

@@ -18,8 +18,12 @@ def read_image(path: Path):
     return cv2.imdecode(data, cv2.IMREAD_COLOR) if data.size else None
 
 
-def images_in(folder: Path) -> list[Path]:
-    return sorted(p for p in folder.iterdir() if p.suffix.lower() in IMAGE_EXTS)
+def images_in(folder: Path, subfolders: bool = False) -> list[Path]:
+    """Images in `folder`; with `subfolders`, also those one level down (one folder per visit)."""
+    found = [p for p in folder.iterdir() if p.suffix.lower() in IMAGE_EXTS]
+    if subfolders:
+        found += [p for d in folder.iterdir() if d.is_dir() for p in d.iterdir() if p.suffix.lower() in IMAGE_EXTS]
+    return sorted(found)
 
 
 def enroll(cfg: Config, faces_dir: Path) -> None:
@@ -40,7 +44,7 @@ def enroll(cfg: Config, faces_dir: Path) -> None:
             if employee_id == emp and source == "enroll":
                 app.library.delete_photo(image)
         added = 0
-        for path in images_in(person_dir):
+        for path in images_in(person_dir, subfolders=True):
             image = read_image(path)
             if image is None:
                 print(f"  - {path.name}: not a readable image, skipped")

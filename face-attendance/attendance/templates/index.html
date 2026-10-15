@@ -111,6 +111,12 @@
 <dialog id="edit">
   <div class="dialog-head"><strong id="edit-title">Edit</strong><button type="button" class="close btn-sm" onclick="edit.close()">✕</button></div>
   <div class="dialog-body">
+    <div id="sightings-box">
+      <strong>Seen by the camera</strong>
+      <div id="sightings" class="sightings"></div>
+      <span class="hint">The arrival is the earliest sighting that is not removed. If one of them was someone else,
+        fix that sighting: the arrival is recomputed from the others.</span>
+    </div>
     <form method="post" id="form-set">
       <strong id="set-label">Arrival time</strong>
       <div class="form-row"><input type="time" name="time" id="edit-time" required><button class="primary">Save</button></div>
@@ -125,17 +131,57 @@
         </select>
         <button>Move</button>
       </div>
-      <span class="hint">Moves this arrival (time and photo) to the right person.</span>
+      <span class="hint">Moves the sighting the arrival came from (time and photo) to the right person.</span>
     </form>
-    <form method="post" id="form-delete" onsubmit="return confirm('Delete this arrival?')">
+    <form method="post" id="form-delete" onsubmit="return confirm('Delete this arrival? If the person really comes later, the camera records them again.')">
       <div class="form-row"><button class="danger">Delete this arrival</button></div>
     </form>
   </div>
 </dialog>
+<template id="sighting-tpl">
+  <div class="sighting">
+    <a class="photo" target="_blank"><img class="avatar" alt=""></a>
+    <div class="info"><strong class="time"></strong><div class="small muted meta"></div></div>
+    <form method="post" class="move btn-group">
+      <select name="to" required><option value="">It was…</option>
+        {% for id, name in employees.items() %}<option value="{{ id }}">{{ name }}</option>{% endfor %}</select>
+      <button class="btn-sm">Move</button>
+    </form>
+    <form method="post" class="reject"><button class="btn-sm" title="Not this person">Not them</button></form>
+    <form method="post" class="restore"><button class="btn-sm">Restore</button></form>
+  </div>
+</template>
 {% endblock %}
 {% block scripts %}
 <script>
   const edit = document.getElementById('edit');
+  const SIGHTINGS = {{ sightings|tojson }};
+  const sightingUrl = "{{ url_for('change_sighting', sighting_id=0, action='ACTION') }}";
+  function showSightings(emp) {
+    const list = SIGHTINGS[emp] || [], box = document.getElementById('sightings');
+    box.replaceChildren();
+    document.getElementById('sightings-box').hidden = list.length === 0;
+    const tpl = document.getElementById('sighting-tpl');
+    for (const s of list) {
+      const el = tpl.content.firstElementChild.cloneNode(true);
+      if (s.image) { el.querySelector('.photo').href = s.image; el.querySelector('img').src = s.image; }
+      else el.querySelector('.photo').remove();
+      el.querySelector('.time').textContent = s.time;
+      el.querySelector('.meta').textContent = s.source + (s.score ? ' · ' + s.score + '%' : '') +
+        (s.ok ? '' : ' · removed') + (s.arrival ? ' · arrival' : '');
+      if (!s.ok) el.classList.add('rejected');
+      if (s.arrival) el.classList.add('arrival');
+      const url = a => sightingUrl.replace('/0/', '/' + s.id + '/').replace('ACTION', a);
+      el.querySelector('.move').action = url('move');
+      el.querySelector('.reject').action = url('reject');
+      el.querySelector('.restore').action = url('restore');
+      el.querySelector('.move').hidden = !s.ok;
+      el.querySelector('.reject').hidden = !s.ok;
+      el.querySelector('.restore').hidden = s.ok;
+      for (const o of el.querySelector('select').options) o.hidden = o.value === emp;
+      box.append(el);
+    }
+  }
   const urls = {
     set: "{{ url_for('set_arrival', day=rep.day.isoformat(), employee_id='__EMP__') }}",
     move: "{{ url_for('reassign_arrival', day=rep.day.isoformat(), employee_id='__EMP__') }}",
@@ -153,6 +199,7 @@
     document.getElementById('form-delete').hidden = !has;
     for (const o of document.getElementById('edit-to').options) o.hidden = o.value === row.dataset.emp;
     document.getElementById('edit-to').value = '';
+    showSightings(row.dataset.emp);
     edit.showModal();
   }
 

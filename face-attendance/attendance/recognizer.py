@@ -13,6 +13,7 @@ Both align every face on its 5 landmarks before computing the embedding.
 from __future__ import annotations
 
 import math
+import os
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -39,6 +40,7 @@ class DetectedFace:
     pitch: float  # degrees, rough estimate from the landmarks
     quality_ok: bool
     quality: float
+    landmarks: np.ndarray | None = None  # 5 points: eyes, nose, mouth corners
 
 
 def enhance_low_light(frame: np.ndarray, threshold: float = 90.0) -> np.ndarray:
@@ -97,13 +99,22 @@ def crop_face(frame: np.ndarray, bbox, margin: float = 0.4) -> np.ndarray:
     return frame[y1:y2, x1:x2].copy()
 
 
-def onnx_session(model: Path, use_gpu: bool = False):
-    """An onnxruntime session that only logs errors: SCRFD run on head crops (any size other
-    than 640) makes onnxruntime warn about output shapes on every frame, which is harmless."""
+def cpu_threads(setting: int = 0) -> int:
+    """Threads for model inference: the setting, or all CPUs but one, which is left for the video
+    decoder and the admin page (at least 1)."""
+    return setting if setting > 0 else max(1, (os.cpu_count() or 2) - 1)
+
+
+def onnx_session(model: Path, use_gpu: bool = False, threads: int = 0):
+    """An onnxruntime session with a capped thread pool, logging errors only: SCRFD run on head
+    crops (any size other than 640) makes onnxruntime warn about output shapes on every frame,
+    which is harmless."""
     import onnxruntime as ort
 
     options = ort.SessionOptions()
     options.log_severity_level = 3
+    options.intra_op_num_threads = cpu_threads(threads)
+    options.inter_op_num_threads = 1
     providers = ["CUDAExecutionProvider", "CPUExecutionProvider"] if use_gpu else ["CPUExecutionProvider"]
     return ort.InferenceSession(str(model), sess_options=options, providers=providers)
 
@@ -132,8 +143,8 @@ class InsightFaceBackend:
     ANCHORS = 2
 
     def __init__(self, cfg: RecognitionConfig, detector: Path, recognizer: Path):
-        self.det = onnx_session(detector, cfg.use_gpu)
-        self.rec = onnx_session(recognizer, cfg.use_gpu)
+        self.det = onnx_session(detector, cfg.use_gpu, cfg.cpu_threads)
+        self.rec = onnx_session(recognizer, cfg.use_gpu, cfg.cpu_threads)
         self.det_size = cfg.det_size
         self._centers: dict[tuple[int, int, int], np.ndarray] = {}
 
@@ -181,6 +192,7 @@ class OpenCVBackend:
     """YuNet + SFace through OpenCV's FaceDetectorYN / FaceRecognizerSF."""
 
     def __init__(self, cfg: RecognitionConfig, detector: Path, recognizer: Path):
+        cv2.setNumThreads(cpu_threads(cfg.cpu_threads))
         self.det = cv2.FaceDetectorYN.create(str(detector), "", (320, 320), 0.5, 0.3, 5000)
         self.rec = cv2.FaceRecognizerSF.create(str(recognizer), "")
         self.max_side = cfg.det_size
@@ -256,9 +268,27 @@ class FaceRecognizer:
                 continue
 
             emb /= max(float(np.linalg.norm(emb)), 1e-12)
-            out.append(DetectedFace(bbox, emb, det, size, sharp, yaw, pitch, ok, quality))
+            out.append(DetectedFace(bbox, emb, det, size, sharp, yaw, pitch, ok, quality, landmarks))
         return out
 
-    def largest_face(self, image: np.ndarray) -> DetectedFace | None:
+    def largest_face(self, image: np.ndarray, mirror: bool = False) -> DetectedFace | None:
+        """The biggest face in a photo. With `mirror` (reference photos), its embedding is the
+        average of the photo and its mirror image, which describes the face rather than the
+        side it happened to be lit or turned from."""
         faces = self.analyze(image)
-        return max(faces, key=lambda f: f.size) if faces else None
+        if not faces:
+            return None
+        face = max(faces, key=lambda f: f.size)
+        if mirror and face.landmarks is not None:
+            flipped = np.ascontiguousarray(image[:, ::-1])
+            kps = face.landmarks.copy()
+            kps[:, 0] = image.shape[1] - 1 - kps[:, 0]
+            kps = kps[[1, 0, 2, 4, 3]]  # the left eye of the mirror image is the right eye, etc.
+            try:
+                other = self.backend.embed(flipped, kps).astype(np.float32)
+            except ValueError:
+                return face
+            other /= max(float(np.linalg.norm(other)), 1e-12)
+            both = face.embedding + other
+            face.embedding = both / max(float(np.linalg.norm(both)), 1e-12)
+        return face

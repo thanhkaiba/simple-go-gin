@@ -259,14 +259,14 @@ class AttendanceService:
         review however often they pass, and a visitor ignored today stays hidden for the rest of the day."""
         if vector is None:
             return None, False
-        v = vector / max(float(np.linalg.norm(vector)), 1e-12)
+        v = self.gallery.prepare(vector)  # compared as the gallery compares faces
         candidates = [(u, False) for u in self.store.unknowns()]
         candidates += [(u, True) for g in self.store.ignored_groups(ts.date()) for u in g]
         best, best_ignored, best_score = None, False, self.cfg.recognition.accept_score
         for u, ignored in candidates:
             if u.vector is None or u.model != self.model_id or ts - self._local(u.ts) > GROUP_WITHIN:
                 continue
-            score = float(np.dot(v, u.vector / max(float(np.linalg.norm(u.vector)), 1e-12)))
+            score = float(np.dot(v, self.gallery.prepare(u.vector)))
             if score >= best_score:
                 best, best_ignored, best_score = u.group_id, ignored, score
         return best, best_ignored
@@ -342,20 +342,13 @@ class AttendanceService:
         self._announce(employee_id, ts, suffix=" (entered by admin)")
 
     def reassign_arrival(self, day: dt.date, from_id: str, to_id: str, user: str = "admin") -> None:
-        """The camera recorded the wrong person: move the record (time and photo) to the right one."""
-        if to_id not in self.store.employees():
-            raise ValueError(f"unknown employee {to_id}")
-        if from_id == to_id:
-            raise ValueError("choose a different employee")
-        c = self.store.delete_checkin(day, from_id)
-        if c is None:
+        """The camera recorded the wrong person: move the sighting the arrival came from (time and
+        photo) to the right one. The first person's arrival is then recomputed from their other
+        sightings, so if they really came later that time counts."""
+        s = self.store.arrival_sighting(day, from_id)
+        if s is None:
             raise ValueError("there is no arrival to move")
-        ts = self._local(c.first_seen)
-        result = self.store.record_checkin(day, to_id, ts, "corrected", c.score, c.image)
-        self.store.log(self.now(), user, "reassign arrival",
-                       f"{day} {ts:%H:%M} {self._name(from_id)} -> {self._name(to_id)}")
-        if result in ("new", "earlier"):
-            self._announce(to_id, ts, suffix=" (corrected by admin)")
+        self.move_sighting(s.id, to_id, user, action="reassign arrival")
 
     def delete_arrival(self, day: dt.date, employee_id: str, user: str = "admin") -> None:
         c = self.store.delete_checkin(day, employee_id)
@@ -363,6 +356,53 @@ class AttendanceService:
             raise ValueError("there is no arrival to delete")
         self.store.log(self.now(), user, "delete arrival",
                        f"{day} {self._name(employee_id)} {self._local(c.first_seen):%H:%M}")
+
+    def move_sighting(self, sighting_id: int, to_id: str, user: str = "admin", action: str = "move sighting") -> None:
+        """One sighting was someone else."""
+        s = self.store.sighting(sighting_id)
+        if s is None:
+            raise ValueError("this sighting no longer exists")
+        if to_id not in self.store.employees():
+            raise ValueError(f"unknown employee {to_id}")
+        if to_id == s.employee_id:
+            raise ValueError("choose a different employee")
+        self._correct(s, f"{self._name(s.employee_id)} -> {self._name(to_id)}", action, user,
+                      employee_id=to_id, status="ok")
+
+    def reject_sighting(self, sighting_id: int, user: str = "admin") -> None:
+        """One sighting was not this person (and nobody in particular, e.g. a visitor)."""
+        s = self.store.sighting(sighting_id)
+        if s is None:
+            raise ValueError("this sighting no longer exists")
+        self._correct(s, self._name(s.employee_id), "reject sighting", user, status="rejected")
+
+    def restore_sighting(self, sighting_id: int, user: str = "admin") -> None:
+        s = self.store.sighting(sighting_id)
+        if s is None:
+            raise ValueError("this sighting no longer exists")
+        self._correct(s, self._name(s.employee_id), "restore sighting", user, status="ok")
+
+    def _correct(self, s, what: str, action: str, user: str, **change) -> None:
+        people = list(dict.fromkeys([s.employee_id, change.get("employee_id") or s.employee_id]))
+        before = {e: self.store.checkins(s.day).get(e) for e in people}
+        self.store.update_sighting(s.id, **change)
+        self.store.log(self.now(), user, action, f"{s.day} {self._local(s.ts):%H:%M} {what}")
+        after = self.store.checkins(s.day)
+        for e in people:
+            self._announce_change(e, before[e], after.get(e))
+
+    def _announce_change(self, employee_id: str, before, after) -> None:
+        """After a correction, post only what changes someone's status: they turn out to be late
+        (or on time after being listed as not seen)."""
+        if after is None or (before is not None and after.first_seen == before.first_seen):
+            return
+        ts = self._local(after.first_seen)
+        if ts.date() != self.now().date():
+            return  # earlier days are corrected quietly
+        late = ts >= self.window(ts.date()).late_after
+        was_late = before is not None and self._local(before.first_seen) >= self.window(ts.date()).late_after
+        if late != was_late or before is None:
+            self._announce(employee_id, ts, suffix=" (corrected by admin)")
 
     def _announce(self, employee_id: str, ts: dt.datetime, suffix: str) -> None:
         day = ts.date()

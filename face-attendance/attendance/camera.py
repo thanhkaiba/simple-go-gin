@@ -1,7 +1,11 @@
-"""Read an RTSP stream on a background thread, keeping only the newest frame.
+"""Read an RTSP stream on a background thread, keeping the last few frames.
 
 Reading on a separate thread prevents the decoder buffer from filling up while a frame is
 being analysed, which would otherwise make the picture lag further and further behind.
+
+The camera sends 15-25 frames a second and only a few are analysed. Of the frames that came
+in since the last one analysed, the sharpest where the faces are is picked: a Wi-Fi camera
+and people walking past give many motion-blurred frames, and a blurred face does not vote.
 """
 from __future__ import annotations
 
@@ -9,6 +13,7 @@ import logging
 import os
 import threading
 import time
+from collections import deque
 
 # RTSP over TCP: slower to start than UDP, but no smeared frames on a weak Wi-Fi link.
 os.environ.setdefault("OPENCV_FFMPEG_CAPTURE_OPTIONS", "rtsp_transport;tcp")
@@ -18,6 +23,22 @@ import cv2  # noqa: E402
 log = logging.getLogger(__name__)
 
 STALE_AFTER_S = 5.0
+BUFFER_FRAMES = 6
+
+
+def focus(frame, regions) -> float:
+    """Sharpness of a frame inside `regions` (x1, y1, x2, y2): mean Laplacian variance. Only the
+    face areas are scored; the static background is always sharp and would hide the difference."""
+    total, n = 0.0, 0
+    h, w = frame.shape[:2]
+    for x1, y1, x2, y2 in regions:
+        x1, y1, x2, y2 = max(0, int(x1)), max(0, int(y1)), min(w, int(x2)), min(h, int(y2))
+        if x2 - x1 < 8 or y2 - y1 < 8:
+            continue
+        crop = cv2.cvtColor(frame[y1:y2, x1:x2], cv2.COLOR_BGR2GRAY)
+        total += float(cv2.Laplacian(crop, cv2.CV_64F).var())
+        n += 1
+    return total / n if n else 0.0
 
 
 class Camera:
@@ -27,6 +48,7 @@ class Camera:
         self._started = time.time()
         self._frame = None
         self._frame_time = 0.0
+        self._recent: deque = deque(maxlen=BUFFER_FRAMES)  # (frame, time)
         self._lock = threading.Lock()
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._run, name="camera", daemon=True)
@@ -56,6 +78,20 @@ class Camera:
                 return None, 0.0
             return self._frame, self._frame_time
 
+    def sharpest(self, after: float, regions=()):
+        """Like latest(), but of the frames newer than `after`, the one whose `regions` (where the
+        faces were a moment ago) are sharpest. Without regions there is nothing to compare, so
+        the newest frame is returned at no cost."""
+        frame, frame_time = self.latest()
+        if frame is None or not regions:
+            return frame, frame_time
+        with self._lock:
+            fresh = [(f, t) for f, t in self._recent if t > after]
+        if len(fresh) <= 1:
+            return frame, frame_time
+        # Scored outside the lock so the reader thread is never held up mid-decode.
+        return max(fresh, key=lambda ft: focus(ft[0], regions))
+
     def _run(self) -> None:
         backoff = 1.0
         while not self._stop.is_set():
@@ -77,6 +113,8 @@ class Camera:
                 if not ok:
                     log.warning("Camera stream interrupted, reconnecting")
                     break
+                now = time.time()
                 with self._lock:
-                    self._frame, self._frame_time = frame, time.time()
+                    self._frame, self._frame_time = frame, now
+                    self._recent.append((frame, now))
             cap.release()

@@ -60,8 +60,8 @@ def greedy_match(scores: np.ndarray, threshold: float) -> list[tuple[int, int]]:
 # detection ----------------------------------------------------------------------------
 
 class PersonDetector:
-    def __init__(self, model: Path, use_gpu: bool = False):
-        self.session = onnx_session(model, use_gpu)
+    def __init__(self, model: Path, use_gpu: bool = False, threads: int = 0):
+        self.session = onnx_session(model, use_gpu, threads)
         inp = self.session.get_inputs()[0]
         self.input_name = inp.name
         self.height, self.width = (int(v) if isinstance(v, int) else 640 for v in inp.shape[2:4])

@@ -42,7 +42,7 @@ Times are set on the Settings page; defaults shown.
   - when the camera or computer was down during the camera hours, or the camera picture was black, blank or frozen;
   - when two employees' reference photos look alike.
 
-**⚠️ The camera only runs during the camera hours** (default 09:00–11:00). Someone who arrives **before 09:00** and does not pass the camera again after 09:00 is counted as late. If people come in early, set the start time earlier, e.g. 08:00.
+**⚠️ The camera only runs during the camera hours** (default 08:00–11:00, late from 10:00). Someone who arrives **before 08:00** and does not pass the camera again after 08:00 is counted as late. If people come in even earlier, set the start time earlier.
 
 ## Model choice
 
@@ -128,9 +128,13 @@ The menu at the top has everything:
   - **‹ ›** move to the previous or next day; the date box jumps to any day.
   - The page refreshes itself every minute while it shows today.
   - **Correcting:** click a person (or their *Edit* button) to open a small window where you can:
-    - **change or add the arrival time**, e.g. someone who missed the camera;
-    - **fix a wrong person** ("Recorded the wrong person? It was…"): the arrival and its photo move to the right person;
-    - **delete** a wrong arrival.
+    - see **every time the camera saw them** that day, with the photo; the one their arrival comes from is outlined in green;
+    - fix **one sighting**: *It was… → Move* (it was someone else) or *Not them* (a visitor, say). The arrival is then **recomputed from the remaining sightings**. Example: Alice was taken for Bob at 9:20 and Bob really came at 10:15. Move the 9:20 sighting to Alice and Bob is shown late at 10:15, instead of disappearing;
+    - **change or add the arrival time**, e.g. someone who missed the camera. A time typed in wins over the camera;
+    - **fix a wrong person** for the arrival itself ("Recorded the wrong person? It was…");
+    - **delete** a wrong arrival. If the person really comes in later, the camera records them again.
+
+  The arrival is the earliest sighting that has not been removed. Every sighting is kept (with its photo, until the retention period), so nothing the camera saw is lost when something is corrected.
 - **Late & absence report:** totals per employee for a period: work days, on time, late, minutes late, not seen, on leave, plus a day-by-day list.
   - Quick buttons choose this month, last month, the last 7 or 30 days.
   - Download a **summary CSV** or a **CSV with every day**; both open in Excel.
@@ -191,6 +195,14 @@ python -m attendance evaluate --gallery faces --test eval --backends insightface
 ```
 
 Enter the recommended values in **Settings → Recognition**, adding about 0.02 to the match threshold as a safety margin. Include hard photos (dark, blurred, side views, masks); they are what separates the backends.
+
+- **Visits:** frames from one walk past the camera can go in a subfolder, `faces/<employee id>/<visit>/*.jpg`. Without `--test`, a whole visit is left out of the references while it is tested (frames of one walk are nearly identical, so testing them against each other flatters the result), and each visit is also scored the way the live system decides, by several agreeing frames.
+- **Centering:** each backend is also tested with `center_embeddings` (needs photos of at least 8 people). It removes the direction that all faces from one camera share, which makes some people look similar to everyone; another team measured 4 wrong frames instead of 20 with it. Scores are lower with it, so it comes with its own threshold. If `evaluate` says it is more accurate, set in `config.yaml`:
+  ```yaml
+  recognition:
+    center_embeddings: true
+    accept_score: <the value evaluate recommends for "centered">
+  ```
 
 `python -m attendance enroll --faces faces` imports the same folders as reference photos, as an alternative to uploading on the web page.
 
@@ -350,6 +362,7 @@ An Intel Mac from 2017 is roughly half as fast as the numbers above. In order of
    is slower than this it simply skips frames; nothing breaks, but fewer frames vote.
 3. In person mode: keep `yolox_tiny` and raise `full_frame_every`.
 4. Keep the Live camera page closed when not needed (drawing the picture costs CPU).
+5. `recognition.cpu_threads` (default: all CPUs but one) leaves a core for video decoding and this page; set it lower if the picture stutters, higher if nothing else runs on the computer.
 
 Run `benchmark` on the real machine and pick the combination that reaches the frame rate you set.
 
@@ -362,7 +375,9 @@ Run `benchmark` on the real machine and pick the combination that reaches the fr
 5. **Several frames must agree:** at least twice as many votes as everyone else combined. A track that ends one vote short is still accepted when all its votes agree and the match is very strong (fast walkers).
 6. **No guessing:** everything else goes to the admin, and each confirmation teaches the system that face.
 7. **Look-alike check:** employees whose photos match each other are flagged before they cause mix-ups.
-8. **Camera health:** a black, blank or frozen picture counts as an outage instead of "nobody came"; days without any camera data are never counted as absences.
+8. **Varied references:** reference photos are enrolled together with their mirror image, and a confirmed face that is almost identical (≥ 97%) to one already kept is not stored again.
+9. **Sharpest frame:** of the frames that arrived since the last one analysed, the one where the faces are sharpest is used (Wi-Fi cameras and people walking give many blurred frames).
+10. **Camera health:** a black, blank or frozen picture counts as an outage instead of "nobody came"; days without any camera data are never counted as absences.
 
 ## Development
 

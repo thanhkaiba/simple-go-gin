@@ -41,6 +41,20 @@ CREATE TABLE IF NOT EXISTS checkins (
     image TEXT,
     PRIMARY KEY (day, employee_id)
 );
+-- Every time the camera (or an admin) placed someone, kept even after their arrival is known.
+-- The arrival in `checkins` is derived from these, so correcting one sighting (wrong person,
+-- not them) recomputes the arrival from what is left, e.g. their real later sighting.
+CREATE TABLE IF NOT EXISTS sightings (
+    id INTEGER PRIMARY KEY,
+    day TEXT NOT NULL,
+    employee_id TEXT NOT NULL,
+    ts TEXT NOT NULL,
+    source TEXT NOT NULL,  -- camera, admin (face confirmed on the review page), manual (time typed in)
+    score REAL,
+    image TEXT,
+    status TEXT NOT NULL DEFAULT 'ok'  -- ok or rejected
+);
+CREATE INDEX IF NOT EXISTS sightings_day ON sightings(day, employee_id);
 CREATE TABLE IF NOT EXISTS unknowns (
     id INTEGER PRIMARY KEY,
     day TEXT NOT NULL,
@@ -122,6 +136,18 @@ class Checkin:
 
 
 @dataclass
+class Sighting:
+    id: int
+    day: dt.date
+    employee_id: str
+    ts: dt.datetime
+    source: str
+    score: float | None
+    image: str | None
+    status: str
+
+
+@dataclass
 class Unknown:
     id: int
     ts: dt.datetime
@@ -197,6 +223,10 @@ class Store:
             for name, kind in columns:
                 if name not in have:
                     self._db.execute(f"ALTER TABLE {table} ADD COLUMN {name} {kind}")
+        # Databases from before sightings existed: each arrival becomes its first sighting.
+        if not self._db.execute("SELECT 1 FROM sightings LIMIT 1").fetchone():
+            self._db.execute("INSERT INTO sightings (day, employee_id, ts, source, score, image) "
+                             "SELECT day, employee_id, first_seen, source, score, image FROM checkins")
         self._db.commit()
 
     def _exec(self, sql: str, params=()) -> sqlite3.Cursor:
@@ -323,44 +353,104 @@ class Store:
                    (model, employee_id, source_prefix + "%"))
         return images
 
-    # check-ins -------------------------------------------------------------
+    # sightings and arrivals -------------------------------------------------
 
-    def record_checkin(self, day: dt.date, employee_id: str, ts: dt.datetime, source: str,
-                       score: float | None, image: str | None) -> str:
-        """Keep the earliest sighting per employee and day. Returns "new", "earlier" or "unchanged"."""
-        with self._lock, self._db:
-            row = self._db.execute(
-                "SELECT first_seen FROM checkins WHERE day = ? AND employee_id = ?", (day.isoformat(), employee_id)
-            ).fetchone()
-            if row is None:
-                self._db.execute(
-                    "INSERT INTO checkins (day, employee_id, first_seen, source, score, image) VALUES (?, ?, ?, ?, ?, ?)",
-                    (day.isoformat(), employee_id, ts.isoformat(), source, score, image),
-                )
-                return "new"
-            if ts < dt.datetime.fromisoformat(row["first_seen"]):
-                self._db.execute(
-                    "UPDATE checkins SET first_seen = ?, source = ?, score = ?, image = ? WHERE day = ? AND employee_id = ?",
-                    (ts.isoformat(), source, score, image, day.isoformat(), employee_id),
-                )
-                return "earlier"
-            return "unchanged"
+    def _sighting(self, r) -> Sighting:
+        return Sighting(r["id"], dt.date.fromisoformat(r["day"]), r["employee_id"], dt.datetime.fromisoformat(r["ts"]),
+                        r["source"], r["score"], r["image"], r["status"])
 
-    def set_checkin(self, day: dt.date, employee_id: str, ts: dt.datetime, source: str,
-                    score: float | None, image: str | None) -> None:
-        """Replace the check-in whatever its current time (admin corrections)."""
-        self._exec(
+    def _recompute(self, day: dt.date, employee_id: str) -> None:
+        """The arrival is the earliest valid sighting, unless an admin typed a time in: the latest
+        typed time wins over the camera. Call with the lock held, inside a transaction."""
+        rows = self._db.execute(
+            "SELECT * FROM sightings WHERE day = ? AND employee_id = ? AND status = 'ok' "
+            "ORDER BY source = 'manual' DESC, CASE WHEN source = 'manual' THEN -id ELSE 0 END, ts LIMIT 1",
+            (day.isoformat(), employee_id)).fetchall()
+        if not rows:
+            self._db.execute("DELETE FROM checkins WHERE day = ? AND employee_id = ?", (day.isoformat(), employee_id))
+            return
+        r = rows[0]
+        self._db.execute(
             "INSERT INTO checkins (day, employee_id, first_seen, source, score, image) VALUES (?, ?, ?, ?, ?, ?) "
             "ON CONFLICT(day, employee_id) DO UPDATE SET first_seen = excluded.first_seen, source = excluded.source, "
             "score = excluded.score, image = excluded.image",
-            (day.isoformat(), employee_id, ts.isoformat(), source, score, image),
-        )
+            (day.isoformat(), employee_id, r["ts"], r["source"], r["score"], r["image"]))
+
+    def _arrival_ts(self, day: dt.date, employee_id: str) -> str | None:
+        row = self._db.execute("SELECT first_seen FROM checkins WHERE day = ? AND employee_id = ?",
+                               (day.isoformat(), employee_id)).fetchone()
+        return row["first_seen"] if row else None
+
+    def record_checkin(self, day: dt.date, employee_id: str, ts: dt.datetime, source: str,
+                       score: float | None, image: str | None) -> str:
+        """Add a sighting. Returns "new" (first arrival of the day), "earlier" (the arrival moved
+        earlier) or "unchanged"."""
+        with self._lock, self._db:
+            before = self._arrival_ts(day, employee_id)
+            self._db.execute("INSERT INTO sightings (day, employee_id, ts, source, score, image) VALUES (?, ?, ?, ?, ?, ?)",
+                             (day.isoformat(), employee_id, ts.isoformat(), source, score, image))
+            self._recompute(day, employee_id)
+            after = self._arrival_ts(day, employee_id)
+        if before is None:
+            return "new"
+        return "unchanged" if after == before else "earlier"
+
+    def set_checkin(self, day: dt.date, employee_id: str, ts: dt.datetime, source: str,
+                    score: float | None, image: str | None) -> None:
+        """An arrival time typed in by an admin; it overrides the camera's sightings."""
+        with self._lock, self._db:
+            self._db.execute("INSERT INTO sightings (day, employee_id, ts, source, score, image) VALUES (?, ?, ?, ?, ?, ?)",
+                             (day.isoformat(), employee_id, ts.isoformat(), "manual", score, image))
+            self._recompute(day, employee_id)
 
     def delete_checkin(self, day: dt.date, employee_id: str) -> Checkin | None:
+        """The arrival was wrong: reject every sighting of the day so far. If the person really
+        comes later, the camera records them again."""
         c = self.checkins(day).get(employee_id)
         if c is not None:
-            self._exec("DELETE FROM checkins WHERE day = ? AND employee_id = ?", (day.isoformat(), employee_id))
+            with self._lock, self._db:
+                self._db.execute("UPDATE sightings SET status = 'rejected' WHERE day = ? AND employee_id = ?",
+                                 (day.isoformat(), employee_id))
+                self._recompute(day, employee_id)
         return c
+
+    def arrival_sighting(self, day: dt.date, employee_id: str) -> Sighting | None:
+        """The sighting the arrival comes from."""
+        c = self.checkins(day).get(employee_id)
+        if c is None:
+            return None
+        for s in self.sightings(day, employee_id):
+            if s.status == "ok" and s.ts == c.first_seen and s.source == c.source:
+                return s
+        return None
+
+    def sightings(self, day: dt.date, employee_id: str | None = None) -> list[Sighting]:
+        if employee_id is None:
+            rows = self._all("SELECT * FROM sightings WHERE day = ? ORDER BY ts", (day.isoformat(),))
+        else:
+            rows = self._all("SELECT * FROM sightings WHERE day = ? AND employee_id = ? ORDER BY ts",
+                             (day.isoformat(), employee_id))
+        return [self._sighting(r) for r in rows]
+
+    def sighting(self, sighting_id: int) -> Sighting | None:
+        rows = self._all("SELECT * FROM sightings WHERE id = ?", (sighting_id,))
+        return self._sighting(rows[0]) if rows else None
+
+    def update_sighting(self, sighting_id: int, employee_id: str | None = None, status: str | None = None) -> None:
+        """Move a sighting to another person and/or reject or restore it; both people's arrivals
+        are recomputed."""
+        with self._lock, self._db:
+            r = self._db.execute("SELECT * FROM sightings WHERE id = ?", (sighting_id,)).fetchone()
+            if r is None:
+                raise ValueError("this sighting no longer exists")
+            old = self._sighting(r)
+            moved = bool(employee_id) and employee_id != old.employee_id
+            self._db.execute("UPDATE sightings SET employee_id = ?, status = ?, source = ? WHERE id = ?",
+                             (employee_id or old.employee_id, status or old.status,
+                              "corrected" if moved and old.source == "camera" else old.source, sighting_id))
+            self._recompute(old.day, old.employee_id)
+            if moved:
+                self._recompute(old.day, employee_id)
 
     def checkins(self, day: dt.date) -> dict[str, Checkin]:
         rows = self._all("SELECT * FROM checkins WHERE day = ?", (day.isoformat(),))
@@ -529,8 +619,10 @@ class Store:
             day = before.isoformat()
             images = [r["image"] for r in self._db.execute(
                 "SELECT image FROM checkins WHERE day < ? AND image LIKE 'crops/%' "
-                "UNION SELECT image FROM unknowns WHERE day < ? AND image IS NOT NULL", (day, day))]
+                "UNION SELECT image FROM sightings WHERE day < ? AND image LIKE 'crops/%' "
+                "UNION SELECT image FROM unknowns WHERE day < ? AND image IS NOT NULL", (day, day, day))]
             self._db.execute("UPDATE checkins SET image = NULL WHERE day < ? AND image LIKE 'crops/%'", (day,))
+            self._db.execute("UPDATE sightings SET image = NULL WHERE day < ? AND image LIKE 'crops/%'", (day,))
             self._db.execute("DELETE FROM unknowns WHERE day < ?", (day,))
         return images
 

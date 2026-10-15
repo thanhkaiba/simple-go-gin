@@ -61,7 +61,8 @@ def test_notices_are_sent_once_even_after_restart(env, tmp_path):
 def test_unknown_faces_are_batched_and_admin_can_resolve(env):
     service, store, clock, sent = env
     run_until(service, clock, at(9, 10))
-    uid = service.on_unknown(at(9, 12), "x.jpg", person_vector(3), "C", 0.38)
+    carol_turned = person_vector(3) + 0.5 * person_vector(40)  # Carol, but not like her reference photo
+    uid = service.on_unknown(at(9, 12), "x.jpg", carol_turned / np.linalg.norm(carol_turned), "C", 0.38)
     service.on_unknown(at(9, 13), "y.jpg", person_vector(20), None, None)
     run_until(service, clock, at(9, 20))
     unknown_msgs = [m for m in sent if m.startswith("❓")]
@@ -113,7 +114,7 @@ def test_system_started_late_reports_the_gap(env):
     service, _, clock, sent = env
     clock.t = at(9, 40)  # PC switched on at 9:40
     run_until(service, clock, at(10, 1))
-    assert "was down: 09:00–09:40" in [m for m in sent if m.startswith("⏰")][0]
+    assert "was down: 08:00–09:40" in [m for m in sent if m.startswith("⏰")][0]
 
 
 def test_pc_off_all_morning_sends_only_summary_with_warning(env):
@@ -121,7 +122,7 @@ def test_pc_off_all_morning_sends_only_summary_with_warning(env):
     clock.t = at(14, 0)
     service.tick()
     assert len(sent) == 1 and sent[0].startswith("📋")
-    assert "was down: 09:00–11:00" in sent[0]
+    assert "was down: 08:00–11:00" in sent[0]
 
 
 def test_messages_use_one_thread_per_day(env):

@@ -10,7 +10,7 @@ retention_days: 90             # camera photos of arrivals and unknown faces are
 # only be changed here and need a restart.
 
 schedule:
-  window_start: "09:00"   # camera starts. People arriving earlier are only counted if they pass the camera again after this time.
+  window_start: "08:00"   # camera starts. People arriving earlier are only counted if they pass the camera again after this time.
   late_after: "10:00"     # first seen before this = on time; not seen by then = late
   window_end: "11:00"     # camera stops, daily summary is sent
   work_days: [0, 1, 2, 3, 4]  # 0 = Monday ... 6 = Sunday
@@ -31,6 +31,7 @@ recognition:
   recognizer_model: ""
   det_size: 640           # detector input (multiple of 32). A 1080p picture is shrunk 3x at 640; use 960 if faces look small
   use_gpu: false
+  cpu_threads: 0          # 0 = all CPUs but one (left for video decoding and the admin page)
   # A frame only votes if the face is big, sharp and roughly frontal enough:
   min_face_px: 60
   min_det_score: 0.65
@@ -40,6 +41,7 @@ recognition:
   # Identification. Tune these two with: python -m attendance evaluate
   accept_score: 0.45      # cosine similarity for a frame to vote; start around 0.45 (insightface) or 0.40 (opencv)
   min_margin: 0.08        # and it must beat the second most similar person by this much
+  center_embeddings: false  # remove the direction all faces share; evaluate says whether it helps (needs its own accept_score)
   votes_required: 3       # frames that must agree before a person is identified
   track_timeout_s: 1.5
   unknown_min_frames: 3   # faces seen in fewer frames than this are ignored instead of reported
