@@ -96,6 +96,17 @@ def create_app(core: "App") -> Flask:
         return {"enabled": core.leave_sync.enabled, "warning": leave_api.warning(cfg, store, service.now()),
                 **status}
 
+    def late_message_status(day: dt.date) -> dict:
+        lm = cfg.late_message
+        if not lm.enabled:
+            return {"enabled": False}
+        sent = store.notice_time(day, "late_message")
+        no_id = [a.name for a in service.late_people(day)
+                 if not getattr(store.employee(a.employee_id), "chat_user", "")]
+        return {"enabled": True, "preview": service.late_text(day, preview=True),
+                "sent": sent.astimezone(service.tz) if sent else None,
+                "missing_chat": no_id, "send_at": lm.send_at or cfg.schedule.window_end, "auto": lm.auto_send}
+
     def done(message: str, endpoint: str, **kwargs):
         flash(message, "ok")
         return redirect(url_for(endpoint, **kwargs))
@@ -114,7 +125,7 @@ def create_app(core: "App") -> Flask:
         return render_template("index.html", rep=rep, employees=store.employees(),
                                late=lambda a: minutes_late(a, rep.window), today=today,
                                prev_day=day - dt.timedelta(days=1), next_day=day + dt.timedelta(days=1),
-                               leave=leave_status(), started=service.now() >= rep.window.start)
+                               leave=leave_status(), started=service.now() >= rep.window.start, late_msg=late_message_status(day))
 
     @app.post("/day/<day>/<employee_id>/set")
     def set_arrival(day: str, employee_id: str):
@@ -142,6 +153,15 @@ def create_app(core: "App") -> Flask:
         except ValueError as exc:
             return failed(str(exc), "index", day=day)
         return done("Arrival deleted.", "index", day=day)
+
+    @app.post("/day/<day>/late-message")
+    def send_late_message(day: str):
+        d = _date(day, service.now().date())
+        if not cfg.late_message.enabled:
+            return failed("Turn on the late message in Settings first.", "index", day=day)
+        if service.send_late_message(d, user()):
+            return done("Late message posted to Google Chat.", "index", day=day)
+        return done("Nobody was late, so no message was sent.", "index", day=day)
 
     @app.get("/unknowns")
     def unknowns():
@@ -242,13 +262,28 @@ def create_app(core: "App") -> Flask:
     def update_employee(employee_id: str):
         store.employee(employee_id) or abort(404)
         try:
-            store.update_employee(employee_id, request.form.get("name", ""), request.form.get("active") == "on")
+            store.update_employee(employee_id, request.form.get("name", ""), request.form.get("active") == "on",
+                                  request.form.get("chat_user"))
         except ValueError as exc:
             return failed(str(exc), "employee", employee_id=employee_id)
         library.reload()
         store.log(service.now(), user(), "edit employee", f"{employee_id} {request.form.get('name')} "
                   f"active={request.form.get('active') == 'on'}")
         return done("Saved.", "employee", employee_id=employee_id)
+
+    @app.post("/employees/<employee_id>/test-mention")
+    def test_mention(employee_id: str):
+        person = store.employee(employee_id) or abort(404)
+        if not cfg.google_chat.webhook_url:
+            return failed("Set the Google Chat webhook in Settings first.", "employee", employee_id=employee_id)
+        if not person.chat_user:
+            return failed("Save the Google Chat user ID first.", "employee", employee_id=employee_id)
+        try:
+            core.chat.send_now(f"Test mention from the attendance system: {service.mention(employee_id)}")
+        except Exception as exc:
+            return failed(f"Sending failed: {exc}", "employee", employee_id=employee_id)
+        return done(f"Test sent. Check in Google Chat that {person.name} is highlighted as a mention.",
+                    "employee", employee_id=employee_id)
 
     @app.post("/employees/<employee_id>/photos")
     def upload_photos(employee_id: str):

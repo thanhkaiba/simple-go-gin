@@ -55,7 +55,7 @@ def test_sync_stores_data_and_leave_affects_attendance(core):
 
     run_until(app.service, clock, at(10, 1))
     deadline = sent[-1]
-    assert "• Bob" not in deadline and "Bob (Sick)" in deadline and "• Carol" in deadline
+    assert "• @Bob" not in deadline and "Bob (Sick)" in deadline and "• @Carol" in deadline
 
 
 def test_sync_replaces_cancelled_leave(core):

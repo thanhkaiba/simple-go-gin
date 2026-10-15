@@ -19,8 +19,9 @@ EDITABLE: dict[str, list[str]] = {
     "camera": ["url", "process_fps", "enhance_low_light"],
     "recognition": ["accept_score", "min_margin", "votes_required", "min_face_px", "min_det_score",
                     "min_sharpness", "max_yaw", "max_pitch", "unknown_min_frames"],
-    "google_chat": ["webhook_url", "notify_late_arrivals", "unknown_batch_minutes"],
+    "google_chat": ["webhook_url", "mention_people", "notify_late_arrivals", "unknown_batch_minutes"],
     "leave_api": ["url", "token", "refresh_minutes"],
+    "late_message": ["enabled", "intro", "item", "auto_send", "send_at"],
     "web": ["public_url", "password"],
     "": ["retention_days", "healthcheck_url"],
 }

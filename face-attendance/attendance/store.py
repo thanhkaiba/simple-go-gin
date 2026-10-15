@@ -20,7 +20,8 @@ SCHEMA = """
 CREATE TABLE IF NOT EXISTS employees (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
-    active INTEGER NOT NULL DEFAULT 1
+    active INTEGER NOT NULL DEFAULT 1,
+    chat_user TEXT NOT NULL DEFAULT ''  -- Google Chat user ID, used to @mention the person
 );
 CREATE TABLE IF NOT EXISTS embeddings (
     id INTEGER PRIMARY KEY,
@@ -108,6 +109,7 @@ class Employee:
     id: str
     name: str
     active: bool
+    chat_user: str = ""
 
 
 @dataclass
@@ -152,6 +154,10 @@ class Leave:
     note: str
 
 
+# Accepted CSV column names for the Google Chat user ID.
+CHAT_COLUMNS = ("chat_user", "chat_id", "google_chat_id", "chat")
+
+
 def _vec(blob) -> np.ndarray | None:
     return None if blob is None else np.frombuffer(blob, dtype=np.float32)
 
@@ -173,7 +179,8 @@ class Store:
 
     def _migrate(self) -> None:
         """Add columns introduced after a database was created."""
-        added = {"embeddings": [("image", "TEXT")], "unknowns": [("group_id", "INTEGER"), ("ignored_day", "TEXT")]}
+        added = {"embeddings": [("image", "TEXT")], "unknowns": [("group_id", "INTEGER"), ("ignored_day", "TEXT")],
+                 "employees": [("chat_user", "TEXT NOT NULL DEFAULT ''")]}
         for table, columns in added.items():
             have = {r["name"] for r in self._db.execute(f"PRAGMA table_info({table})")}
             for name, kind in columns:
@@ -192,19 +199,21 @@ class Store:
     # employees -------------------------------------------------------------
 
     def import_employees(self, csv_text: str) -> int:
-        """Add or rename employees from CSV text with columns id,name. Nobody is removed."""
-        reader = csv.DictReader(io.StringIO(csv_text.lstrip("﻿")))
+        """Add or rename employees from CSV text with columns id,name and optionally chat_user
+        (Google Chat user ID, for @mentions). Nobody is removed."""
+        reader = csv.DictReader(io.StringIO(csv_text.lstrip("\ufeff")))
         if not reader.fieldnames or not {"id", "name"} <= {f.strip().lower() for f in reader.fieldnames}:
             raise ValueError("the CSV needs a header row with the columns id,name")
         rows = []
         for r in reader:
             r = {k.strip().lower(): (v or "").strip() for k, v in r.items() if k}
             if r.get("id") and r.get("name"):
-                rows.append((r["id"], r["name"]))
+                rows.append((r["id"], r["name"], next((r[c] for c in CHAT_COLUMNS if r.get(c)), "")))
         with self._lock, self._db:
             self._db.executemany(
-                "INSERT INTO employees (id, name, active) VALUES (?, ?, 1) "
-                "ON CONFLICT(id) DO UPDATE SET name = excluded.name, active = 1",
+                "INSERT INTO employees (id, name, active, chat_user) VALUES (?, ?, 1, ?) "
+                "ON CONFLICT(id) DO UPDATE SET name = excluded.name, active = 1, "
+                "chat_user = CASE WHEN excluded.chat_user != '' THEN excluded.chat_user ELSE employees.chat_user END",
                 rows,
             )
         return len(rows)
@@ -217,10 +226,12 @@ class Store:
             raise ValueError(f"employee id {employee_id} already exists")
         self._exec("INSERT INTO employees (id, name, active) VALUES (?, ?, 1)", (employee_id, name))
 
-    def update_employee(self, employee_id: str, name: str, active: bool) -> None:
+    def update_employee(self, employee_id: str, name: str, active: bool, chat_user: str | None = None) -> None:
         if not name.strip():
             raise ValueError("name is required")
         self._exec("UPDATE employees SET name = ?, active = ? WHERE id = ?", (name.strip(), int(active), employee_id))
+        if chat_user is not None:
+            self._exec("UPDATE employees SET chat_user = ? WHERE id = ?", (chat_user.strip(), employee_id))
 
     def delete_employee(self, employee_id: str) -> list[str]:
         """Remove the employee and their face data; returns reference image paths to delete.
@@ -234,11 +245,14 @@ class Store:
 
     def employee(self, employee_id: str) -> Employee | None:
         rows = self._all("SELECT * FROM employees WHERE id = ?", (employee_id,))
-        return Employee(rows[0]["id"], rows[0]["name"], bool(rows[0]["active"])) if rows else None
+        return self._employee(rows[0]) if rows else None
+
+    @staticmethod
+    def _employee(r) -> Employee:
+        return Employee(r["id"], r["name"], bool(r["active"]), r["chat_user"] or "")
 
     def all_employees(self) -> list[Employee]:
-        return [Employee(r["id"], r["name"], bool(r["active"]))
-                for r in self._all("SELECT * FROM employees ORDER BY active DESC, name")]
+        return [self._employee(r) for r in self._all("SELECT * FROM employees ORDER BY active DESC, name")]
 
     def employees(self) -> dict[str, str]:
         """Active employees: id -> name."""
@@ -508,6 +522,10 @@ class Store:
 
     def notice_sent(self, day: dt.date, kind: str) -> bool:
         return bool(self._all("SELECT 1 FROM notices WHERE day = ? AND kind = ?", (day.isoformat(), kind)))
+
+    def notice_time(self, day: dt.date, kind: str) -> dt.datetime | None:
+        rows = self._all("SELECT sent_at FROM notices WHERE day = ? AND kind = ?", (day.isoformat(), kind))
+        return dt.datetime.fromisoformat(rows[0]["sent_at"]) if rows else None
 
     def mark_notice(self, day: dt.date, kind: str, now: dt.datetime) -> None:
         self._exec("INSERT OR IGNORE INTO notices (day, kind, sent_at) VALUES (?, ?, ?)",

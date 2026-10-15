@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING, Callable
 import numpy as np
 
 from . import leave_api
-from .config import Config
+from .config import Config, parse_clock
 from .gallery import Gallery
 from .notifier import GoogleChat
 from .store import LEAVE_KINDS, Store
@@ -175,6 +175,50 @@ class AttendanceService:
         e = self.store.employee(employee_id)
         return e.name if e else employee_id
 
+    def mention(self, employee_id: str) -> str:
+        """A Google Chat @mention when the employee's Chat user ID is known, else "@Name" as plain text."""
+        e = self.store.employee(employee_id)
+        if e and e.chat_user:
+            return f"<users/{e.chat_user}>"
+        return f"@{e.name if e else employee_id}"
+
+    def who(self, employee_id: str, name: str | None = None) -> str:
+        """How a person is named in alerts: a mention if that is switched on, else their name in bold."""
+        if self.cfg.google_chat.mention_people:
+            return self.mention(employee_id)
+        return f"*{name or self._name(employee_id)}*"
+
+    # daily late message ----------------------------------------------------------
+
+    def late_people(self, day: dt.date) -> list[Arrival]:
+        """Late arrivals of the day (people on leave who came in anyway are left out)."""
+        if not self.is_workday(day):
+            return []
+        on_leave = self.store.leaves_on(day)
+        return [a for a in self.report(day).late if a.employee_id not in on_leave]
+
+    def late_text(self, day: dt.date, preview: bool = False) -> str | None:
+        """'Morning, coming late today: @A (10:15), and @B (10:32)'. With preview=True names are
+        shown as @Name instead of Google Chat mention codes."""
+        people = self.late_people(day)
+        if not people:
+            return None
+        lm, w = self.cfg.late_message, self.window(day)
+        items = [lm.item.format(mention=f"@{a.name}" if preview else self.mention(a.employee_id), name=a.name,
+                                time=a.time, minutes=minutes_late(a, w)) for a in people]
+        joined = items[0] if len(items) == 1 else ", ".join(items[:-1]) + ", and " + items[-1]
+        return f"{lm.intro} {joined}"
+
+    def send_late_message(self, day: dt.date, user: str = "system") -> bool:
+        """Post the day's late message (as its own message, not in the day's thread)."""
+        text = self.late_text(day)
+        self.store.mark_notice(day, "late_message", self.now())
+        if text is None:
+            return False
+        self.chat.send(text, None, self.now())
+        self.store.log(self.now(), user, "send late message", ", ".join(a.name for a in self.late_people(day)))
+        return True
+
     # events from the camera pipeline ----------------------------------------------
 
     def on_identified(self, employee_id: str, ts: dt.datetime, score: float, image: str | None) -> None:
@@ -317,15 +361,14 @@ class AttendanceService:
         if not self.is_workday(day) or employee_id in self.store.leaves_on(day):
             return
         w = self.window(day)
-        name = self._name(employee_id)
         when = f"{ts:%H:%M}" if day == self.now().date() else f"{ts:%H:%M} on {day:%Y-%m-%d}"
         if ts >= w.late_after:
             if self.cfg.google_chat.notify_late_arrivals:
                 late = int((ts - w.late_after).total_seconds() // 60)
-                self._send(f"🟠 *{name}* arrived at {when}, {late} min late{suffix}.", day)
+                self._send(f"🟠 {self.who(employee_id)} arrived at {when}, {late} min late{suffix}.", day)
         elif self.store.notice_sent(day, "deadline"):
             # They were on the "not seen" list, but turned out to have arrived on time.
-            self._send(f"✅ Update: *{name}* arrived at {when}{suffix}, not late.", day)
+            self._send(f"✅ Update: *{self._name(employee_id)}* arrived at {when}{suffix}, not late.", day)
 
     # reports -------------------------------------------------------------------
 
@@ -388,7 +431,7 @@ class AttendanceService:
             lines = [f"⏰ {w.late_after:%H:%M}: all {rep.total} people arrived on time 🎉"]
         else:
             lines = [f"⏰ *{w.late_after:%H:%M}: {len(rep.not_seen)}/{rep.total} people not seen yet* (counted as late):"]
-            lines += [f"• {name}" for _, name in rep.not_seen]
+            lines += [f"• {self.who(emp_id, name)}" for emp_id, name in rep.not_seen]
         if rep.pending_unknowns:
             lines.append(f"❓ {rep.pending_unknowns} unidentified faces, possibly people on this list. "
                          f"Review: {self._link('/unknowns')}")
@@ -477,6 +520,11 @@ class AttendanceService:
                     self._send(self.unknown_text(pending), day)
                     self.store.mark_unknowns_notified([u.id for u in pending])
                     self._last_unknown_notice = now
+
+            lm = self.cfg.late_message
+            send_at = dt.datetime.combine(day, parse_clock(lm.send_at), tzinfo=self.tz) if lm.send_at else w.end
+            if lm.enabled and lm.auto_send and not self.store.notice_sent(day, "late_message") and now >= send_at:
+                self.send_late_message(day)
 
             if now >= w.end and not self.store.notice_sent(day, "summary"):
                 self.store.mark_unknowns_notified([u.id for u in self.store.unnotified_unknowns(day)])

@@ -73,8 +73,19 @@ class RecognitionConfig:
 @dataclass
 class GoogleChatConfig:
     webhook_url: str = ""
+    mention_people: bool = True  # @mention late and missing people (needs their Google Chat user ID)
     notify_late_arrivals: bool = True
     unknown_batch_minutes: int = 5
+
+
+@dataclass
+class LateMessageConfig:
+    """One Google Chat message a day listing who came late, with an @mention for each person."""
+    enabled: bool = True
+    intro: str = "Morning, coming late today:"
+    item: str = "{mention} ({time})"  # placeholders: {mention}, {name}, {time}, {minutes}
+    auto_send: bool = True
+    send_at: str = ""  # empty: when the camera stops (window_end); can also be sent from the Today page
 
 
 @dataclass
@@ -109,6 +120,7 @@ class Config:
     recognition: RecognitionConfig = field(default_factory=RecognitionConfig)
     google_chat: GoogleChatConfig = field(default_factory=GoogleChatConfig)
     leave_api: LeaveApiConfig = field(default_factory=LeaveApiConfig)
+    late_message: LateMessageConfig = field(default_factory=LateMessageConfig)
     web: WebConfig = field(default_factory=WebConfig)
     base_dir: Path = field(default=Path("."), repr=False)
 
@@ -140,6 +152,17 @@ class Config:
             raise ValueError("process_fps must be between 0 and 30")
         if self.retention_days < 1:
             raise ValueError("retention_days must be at least 1")
+        lm = self.late_message
+        if str(lm.send_at).strip():
+            lm.send_at = parse_clock(lm.send_at).strftime("%H:%M")
+            if parse_clock(lm.send_at) < late:
+                raise ValueError("the late message must be sent at or after the late time")
+        else:
+            lm.send_at = ""
+        try:
+            lm.item.format(mention="", name="", time="", minutes=0)
+        except (KeyError, IndexError, ValueError):
+            raise ValueError("the late message line may only use {mention}, {name}, {time} and {minutes}") from None
         if self.leave_api.refresh_minutes < 1:
             raise ValueError("leave_api.refresh_minutes must be at least 1")
         if self.google_chat.unknown_batch_minutes < 0:

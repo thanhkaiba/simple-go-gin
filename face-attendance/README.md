@@ -32,8 +32,9 @@ Times are set on the Settings page; defaults shown.
 
 **Google Chat messages.** All of a day's messages go in one thread.
 
-- **10:00:** everyone not seen yet, plus who is on leave and who has no reference photos.
-- **Late arrival:** as it happens.
+- **10:00:** everyone not seen yet (each person @mentioned), plus who is on leave and who has no reference photos.
+- **Late arrival:** as it happens, with an @mention.
+- **Daily late message** when the camera stops (11:00 by default), as its own message: "Morning, coming late today: @Jennie Luu (10:15), and @Steven Hoang (10:32)". The wording can be changed in Settings; it can also be sent earlier from the Today page after checking it.
 - **Unidentified faces:** batched every 5 minutes at most, with a link to review them.
 - **Correction:** a short update whenever the admin fixes something after the 10:00 list went out.
 - **11:00:** daily summary.
@@ -190,6 +191,18 @@ python -m attendance evaluate --gallery faces --test eval --backends insightface
 Enter the recommended values in **Settings → Recognition**, adding about 0.02 to the match threshold as a safety margin. Include hard photos (dark, blurred, side views, masks); they are what separates the backends.
 
 `python -m attendance enroll --faces faces` imports the same folders as reference photos, as an alternative to uploading on the web page.
+
+### @mentions in Google Chat
+
+Google Chat only turns a name into a real @mention (with a notification) when it knows the person's **Google Chat user ID**, a long number. A webhook message mentions someone with `<users/ID>`.
+
+**Where to find the ID:** in the Google Admin console under *Directory → Users*, open the person; the number at the end of the page address is their ID.
+
+**Where to enter it:**
+- on the employee's page, then click **Send test mention** to check that it works;
+- or in bulk, with a `chat_user` column in the employees CSV import.
+
+People without an ID still appear as "@Name", but as plain text, without a notification. The Today page lists who is missing an ID.
 
 ## 5. Keep it running
 

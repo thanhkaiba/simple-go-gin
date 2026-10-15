@@ -32,7 +32,8 @@
     </form>
     <form method="post" action="{{ url_for('import_employees') }}" enctype="multipart/form-data" class="form-row" style="margin-top:16px">
       <label class="field grow">Or import many at once from a CSV file (columns: id,name)
-        <input type="file" name="file" accept=".csv,text/csv" required></label>
+        <input type="file" name="file" accept=".csv,text/csv" required>
+        <span class="hint">Add a chat_user column with Google Chat user IDs to enable @mentions.</span></label>
       <button>Import</button>
     </form>
   </div>
@@ -40,7 +41,7 @@
 
 <div class="table-wrap">
   <table id="people">
-    <thead><tr><th style="width:60px"></th><th>Employee</th><th>Photos</th><th>Status</th><th></th></tr></thead>
+    <thead><tr><th style="width:60px"></th><th>Employee</th><th>Photos</th><th class="hide-sm">Google Chat</th><th>Status</th><th></th></tr></thead>
     <tbody>
     {% for p in people %}
       {% set n = counts.get(p.id, 0) %}
@@ -50,6 +51,7 @@
         <td>{% if n == 0 %}<span class="badge bad">No photos</span>
             {% elif n < 5 %}<span class="badge late">{{ n }} photos · add more</span>
             {% else %}<span class="badge ok">{{ n }} photos</span>{% endif %}</td>
+        <td class="hide-sm">{% if p.chat_user %}<span class="badge ok">@ mention</span>{% else %}<span class="small muted">no ID</span>{% endif %}</td>
         <td>{% if not p.active %}<span class="badge info">Not tracked</span>
             {% elif on_leave.get(p.id) %}<span class="badge info">{{ leave_label(on_leave[p.id]) }} today</span>
             {% else %}<span class="badge ok">Active</span>{% endif %}</td>

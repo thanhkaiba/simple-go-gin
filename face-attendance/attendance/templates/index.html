@@ -82,6 +82,29 @@
   <div class="empty-state" id="empty" hidden>Nobody matches.</div>
 </div>
 
+{% if late_msg.enabled and rep.workday %}
+<div class="card" style="margin-top:16px">
+  <div class="form-row" style="justify-content:space-between; align-items:center">
+    <h2 style="margin:0">💬 Late message for Google Chat</h2>
+    <form method="post" action="{{ url_for('send_late_message', day=rep.day.isoformat()) }}"
+          {% if late_msg.sent %}onsubmit="return confirm('The message was already sent. Send it again?')"{% endif %}>
+      <button class="{{ 'primary' if not late_msg.sent }}" {{ 'disabled' if not late_msg.preview }}>{{ 'Send again' if late_msg.sent else 'Send now' }}</button>
+    </form>
+  </div>
+  {% if late_msg.preview %}
+    <p style="background:#f8fafc; border:1px solid var(--line); border-radius:8px; padding:12px; margin:12px 0 6px">{{ late_msg.preview }}</p>
+  {% else %}
+    <p class="muted" style="margin:12px 0 6px">Nobody was late{{ ' so far' if rep.day == today }} 🎉</p>
+  {% endif %}
+  <p class="hint" style="margin:0">
+    {% if late_msg.sent %}Sent at {{ late_msg.sent.strftime('%H:%M') }}.
+    {% elif late_msg.auto %}Sent automatically at {{ late_msg.send_at }}. Fix wrong arrivals above before then.
+    {% else %}Sent only when you click the button.{% endif %}
+    {% if late_msg.missing_chat %}<br>⚠️ No Google Chat ID for {{ late_msg.missing_chat|join(', ') }}: shown as plain text, without a notification.{% endif %}
+  </p>
+</div>
+{% endif %}
+
 <dialog id="edit">
   <div class="dialog-head"><strong id="edit-title">Edit</strong><button type="button" class="close btn-sm" onclick="edit.close()">✕</button></div>
   <div class="dialog-body">

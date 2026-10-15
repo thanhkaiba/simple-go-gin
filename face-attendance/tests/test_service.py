@@ -36,11 +36,11 @@ def test_not_seen_by_deadline_is_listed_then_late_arrival_announced(env):
     deadline = [m for m in sent if m.startswith("⏰")]
     assert len(deadline) == 1
     assert "2/3 people not seen yet" in deadline[0]
-    assert "• Bob" in deadline[0] and "• Carol" in deadline[0] and "Alice" not in deadline[0]
+    assert "• @Bob" in deadline[0] and "• @Carol" in deadline[0] and "Alice" not in deadline[0]
 
     clock.t = at(10, 23)
     service.on_identified("B", at(10, 23), 0.7, None)
-    assert sent[-1] == "🟠 *Bob* arrived at 10:23, 23 min late."
+    assert sent[-1] == "🟠 @Bob arrived at 10:23, 23 min late."
 
     run_until(service, clock, at(11, 1))
     summary = sent[-1]

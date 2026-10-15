@@ -18,6 +18,7 @@
   <nav class="card" style="position:sticky; top:72px; padding:8px; display:grid; gap:2px" id="toc">
     <a class="btn" style="border:0" href="#hours">Working hours</a>
     <a class="btn" style="border:0" href="#chat">Google Chat</a>
+    <a class="btn" style="border:0" href="#late">Late message</a>
     <a class="btn" style="border:0" href="#hr">HR system</a>
     <a class="btn" style="border:0" href="#camera">Camera</a>
     <a class="btn" style="border:0" href="#admin">Access &amp; privacy</a>
@@ -50,8 +51,26 @@
         <button formaction="{{ url_for('test_chat') }}">Send test message</button>
       </div>
       <div class="form-row" style="margin-top:12px">
+        {{ check('google_chat', 'mention_people', '@mention people in late and not-seen alerts') }}
         {{ check('google_chat', 'notify_late_arrivals', 'Post each late arrival as it happens') }}
         {{ field('google_chat', 'unknown_batch_minutes', 'Group "faces to review" notices every (minutes)', type='number') }}
+      </div>
+    </div>
+
+    <div class="card" id="late">
+      <h2>Daily late message</h2>
+      <p class="hint" style="margin-top:0">One message a day in Google Chat listing who came late, mentioning each person,
+        e.g. "Morning, coming late today: @Jennie Luu (10:15), and @Steven Hoang (10:32)". Mentions need each employee's
+        Google Chat user ID (Employees page).</p>
+      <div style="margin-bottom:12px">{{ check('late_message', 'enabled', 'Post the daily late message') }}</div>
+      <div class="form-row">
+        <label class="field grow">Message starts with<input name="late_message.intro" value="{{ s.late_message.intro }}"></label>
+        <label class="field grow">Each person<input name="late_message.item" value="{{ s.late_message.item }}">
+          <span class="hint">You can use {mention}, {name}, {time} and {minutes} (minutes late)</span></label>
+      </div>
+      <div class="form-row" style="margin-top:12px">
+        {{ check('late_message', 'auto_send', 'Send automatically at') }}
+        {{ field('late_message', 'send_at', '', 'Empty = when the camera stops. Must be at or after the late time.', type='time') }}
       </div>
     </div>
 

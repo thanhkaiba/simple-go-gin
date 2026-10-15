@@ -54,9 +54,12 @@
       <h2>Details</h2>
       <form method="post" action="{{ url_for('update_employee', employee_id=person.id) }}" style="display:grid; gap:12px">
         <label class="field">Full name<input name="name" value="{{ person.name }}" required></label>
+        <label class="field">Google Chat user ID (for @mentions)<input name="chat_user" value="{{ person.chat_user }}" placeholder="e.g. 112233445566778899000" autocomplete="off">
+          <span class="hint">The number at the end of the person's page address in Google Admin (Directory → Users).</span></label>
         <label class="check"><input type="checkbox" name="active" {{ 'checked' if person.active }}> Tracked by the camera</label>
         <span class="hint">Untick for people who left or are away for a long time; their data is kept.</span>
-        <div><button class="primary">Save</button></div>
+        <div class="btn-group"><button class="primary">Save</button>
+          {% if person.chat_user %}<button formaction="{{ url_for('test_mention', employee_id=person.id) }}">Send test mention</button>{% endif %}</div>
       </form>
     </div>
 
