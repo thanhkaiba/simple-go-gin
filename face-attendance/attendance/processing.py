@@ -1,0 +1,72 @@
+"""One camera frame -> faces, people and tracker decisions. Shared by the live loop and `benchmark`."""
+from __future__ import annotations
+
+import datetime as dt
+import logging
+
+import numpy as np
+
+from .person import ByteTracker, PersonDetector, PersonTrack, assign_faces, head_region
+from .recognizer import DetectedFace, crop_face
+from .tracker import Decision, FaceTracker, Observation
+
+log = logging.getLogger(__name__)
+
+
+class FrameProcessor:
+    def __init__(self, app, mode: str | None = None):
+        """`mode` overrides cfg.tracking.mode (the benchmark runs both); otherwise the setting is
+        read on every frame, so switching it on the Settings page takes effect right away."""
+        self.app = app
+        self.cfg = app.cfg
+        self.face_tracker = FaceTracker(self.cfg.recognition)
+        self._mode = mode
+        self._detector: PersonDetector | None = None
+        self._people = ByteTracker(new_track=self.cfg.tracking.person_conf)
+        self.person_error: str | None = None
+        self.people: list[PersonTrack] = []
+        self._frames = 0
+
+    @property
+    def mode(self) -> str:
+        return self._mode or self.cfg.tracking.mode
+
+    def _detector_or_none(self) -> PersonDetector | None:
+        if self._detector is None and self.person_error is None:
+            try:
+                self._detector = PersonDetector(self.cfg.path(self.cfg.tracking.person_model),
+                                                self.cfg.recognition.use_gpu)
+                log.info("Person tracking on (%s model)", self._detector.kind)
+            except Exception as exc:  # missing or unsupported model: keep working with faces only
+                self.person_error = f"Person tracking is off: {exc}"
+                log.error(self.person_error)
+        return self._detector
+
+    def process(self, frame: np.ndarray, ts: dt.datetime, record: bool = True
+                ) -> tuple[list[Decision], list[tuple[DetectedFace, list, int | None]], list[PersonTrack]]:
+        """Returns (decisions, faces with their gallery matches and person id, visible people).
+        With record=False (camera preview) nothing is added to the trackers' decisions."""
+        regions, people, followed, full_frame = (), [], None, True
+        detector = self._detector_or_none() if self.mode == "person" else None
+        if detector is not None:
+            self._people.new_track = self.cfg.tracking.person_conf
+            boxes, scores = detector.detect(frame, min_score=0.1)
+            people = self._people.update(boxes, scores, ts)
+            followed = self._people.alive()
+            regions = [head_region(p.box, frame.shape) for p in people]
+            full_frame = not people or self._frames % self.cfg.tracking.full_frame_every == 0
+            self._frames += 1
+        with self.app.recognizer_lock:
+            faces = self.app.recognizer().analyze(frame, regions, self.cfg.tracking.head_crop_size, full_frame)
+        owners = assign_faces([f.bbox for f in faces], people) if people else [None] * len(faces)
+        matched = [(f, self.app.gallery.match(f.embedding), pid) for f, pid in zip(faces, owners)]
+        decisions = []
+        if record:
+            observations = [Observation(f.bbox, f.embedding, c, f.quality_ok, f.quality, crop_face(frame, f.bbox), pid)
+                            for f, c, pid in matched]
+            decisions = self.face_tracker.update(observations, ts, followed)
+        self.people = people
+        return decisions, matched, people
+
+    def flush(self) -> list[Decision]:
+        return self.face_tracker.flush()

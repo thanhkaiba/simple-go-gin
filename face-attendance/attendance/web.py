@@ -430,6 +430,7 @@ def create_app(core: "App") -> Flask:
     def live_json():
         _, frame_time = live.frame()  # counts as a viewer, so the camera loop keeps drawing frames
         return jsonify(camera=live.camera_state, problem=live.problem, fps=round(live.fps, 1), faces=live.faces,
+                       people=live.people if cfg.tracking.mode == "person" else None,
                        last_identified=live.last_identified, previewing=live.previewing,
                        in_window=service.in_window(service.now()),
                        frame_age=round(time.time() - frame_time, 1) if frame_time else None)

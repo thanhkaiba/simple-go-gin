@@ -102,6 +102,19 @@
         {{ field('camera', 'process_fps', 'Frames per second', 'Lower if the computer is slow', type='number', step='0.5') }}
       </div>
       <div style="margin-top:12px">{{ check('camera', 'enhance_low_light', 'Brighten dark frames automatically') }}</div>
+      <h3 style="margin-top:20px">Groups of people</h3>
+      <div class="form-row">
+        <label class="field">Follow
+          <select name="tracking.mode">
+            <option value="face" {{ 'selected' if s.tracking.mode == 'face' }}>Faces only (lighter)</option>
+            <option value="person" {{ 'selected' if s.tracking.mode == 'person' }}>Whole people (better for groups)</option>
+          </select>
+          <span class="hint">Whole people keeps names apart when several people walk in together, and needs a faster computer.
+            {% if not cfg.path(cfg.tracking.person_model).exists() %}<br><b>Model missing:</b> run
+            <code>python -m attendance download-models --person</code>{% endif %}</span></label>
+        {{ field('tracking', 'person_conf', 'Person confidence', 'Raise if bags or chairs get followed', type='number', step='0.05') }}
+        {{ field('tracking', 'full_frame_every', 'Search the whole frame every N frames', 'Higher = faster; 1 = every frame', type='number') }}
+      </div>
     </div>
 
     <div class="card" id="admin">

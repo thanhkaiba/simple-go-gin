@@ -88,6 +88,21 @@ class RecognitionConfig:
 
 
 @dataclass
+class TrackingConfig:
+    """How faces are followed between frames.
+    face: follow faces only (light). person: also detect and follow whole people, which keeps
+    identities apart when several people walk in together (heavier; see README)."""
+    mode: str = "face"
+    person_model: str = "models/yolox_tiny.onnx"  # YOLOX (Apache-2.0) or a YOLOv8 ONNX export (AGPL-3.0)
+    person_conf: float = 0.5  # confidence needed to start following a person
+    head_crop_size: int = 320  # faces are also searched in each person's head region at this size
+    # The whole-frame face search is the slowest step. In person mode the head regions are
+    # searched on every frame, the whole frame only every Nth frame (and whenever nobody is
+    # followed) to catch faces whose body was missed. 1 = every frame.
+    full_frame_every: int = 4
+
+
+@dataclass
 class GoogleChatConfig:
     webhook_url: str = ""
     mention_people: bool = True  # @mention late and missing people (needs their Google Chat user ID)
@@ -135,6 +150,7 @@ class Config:
     schedule: ScheduleConfig = field(default_factory=ScheduleConfig)
     camera: CameraConfig = field(default_factory=CameraConfig)
     recognition: RecognitionConfig = field(default_factory=RecognitionConfig)
+    tracking: TrackingConfig = field(default_factory=TrackingConfig)
     google_chat: GoogleChatConfig = field(default_factory=GoogleChatConfig)
     leave_api: LeaveApiConfig = field(default_factory=LeaveApiConfig)
     late_message: LateMessageConfig = field(default_factory=LateMessageConfig)
@@ -180,6 +196,15 @@ class Config:
         else:
             lm.send_at = ""
         check_late_message_item(lm.item)
+        t = self.tracking
+        if t.mode not in ("face", "person"):
+            raise ValueError("tracking.mode must be face or person")
+        if not 0.1 <= t.person_conf <= 0.95:
+            raise ValueError("tracking.person_conf must be between 0.1 and 0.95")
+        if t.head_crop_size < 64 or t.head_crop_size % 32:
+            raise ValueError("tracking.head_crop_size must be a multiple of 32, at least 64")
+        if not 1 <= t.full_frame_every <= 30:
+            raise ValueError("tracking.full_frame_every must be between 1 and 30")
         if self.leave_api.refresh_minutes < 1:
             raise ValueError("leave_api.refresh_minutes must be at least 1")
         if self.google_chat.unknown_batch_minutes < 0:

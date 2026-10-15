@@ -97,6 +97,17 @@ def crop_face(frame: np.ndarray, bbox, margin: float = 0.4) -> np.ndarray:
     return frame[y1:y2, x1:x2].copy()
 
 
+def onnx_session(model: Path, use_gpu: bool = False):
+    """An onnxruntime session that only logs errors: SCRFD run on head crops (any size other
+    than 640) makes onnxruntime warn about output shapes on every frame, which is harmless."""
+    import onnxruntime as ort
+
+    options = ort.SessionOptions()
+    options.log_severity_level = 3
+    providers = ["CUDAExecutionProvider", "CPUExecutionProvider"] if use_gpu else ["CPUExecutionProvider"]
+    return ort.InferenceSession(str(model), sess_options=options, providers=providers)
+
+
 def nms(boxes: np.ndarray, scores: np.ndarray, threshold: float) -> list[int]:
     order = scores.argsort()[::-1]
     areas = (boxes[:, 2] - boxes[:, 0]) * (boxes[:, 3] - boxes[:, 1])
@@ -121,21 +132,20 @@ class InsightFaceBackend:
     ANCHORS = 2
 
     def __init__(self, cfg: RecognitionConfig, detector: Path, recognizer: Path):
-        import onnxruntime as ort
-
-        providers = ["CUDAExecutionProvider", "CPUExecutionProvider"] if cfg.use_gpu else ["CPUExecutionProvider"]
-        self.det = ort.InferenceSession(str(detector), providers=providers)
-        self.rec = ort.InferenceSession(str(recognizer), providers=providers)
+        self.det = onnx_session(detector, cfg.use_gpu)
+        self.rec = onnx_session(recognizer, cfg.use_gpu)
         self.det_size = cfg.det_size
         self._centers: dict[tuple[int, int, int], np.ndarray] = {}
 
-    def detect(self, frame: np.ndarray, threshold: float = 0.5) -> list[tuple[np.ndarray, float, np.ndarray]]:
+    def detect(self, frame: np.ndarray, threshold: float = 0.5,
+               det_size: int | None = None) -> list[tuple[np.ndarray, float, np.ndarray]]:
+        size = det_size or self.det_size
         h, w = frame.shape[:2]
-        scale = self.det_size / max(h, w)
-        resized = cv2.resize(frame, (int(w * scale), int(h * scale)))
-        canvas = np.zeros((self.det_size, self.det_size, 3), dtype=np.uint8)
+        scale = size / max(h, w)
+        resized = cv2.resize(frame, (max(1, int(w * scale)), max(1, int(h * scale))))
+        canvas = np.zeros((size, size, 3), dtype=np.uint8)
         canvas[: resized.shape[0], : resized.shape[1]] = resized
-        blob = cv2.dnn.blobFromImage(canvas, 1 / 128, (self.det_size, self.det_size), (127.5, 127.5, 127.5), swapRB=True)
+        blob = cv2.dnn.blobFromImage(canvas, 1 / 128, (size, size), (127.5, 127.5, 127.5), swapRB=True)
         outs = self.det.run(None, {self.det.get_inputs()[0].name: blob})
 
         boxes, scores, kpss = [], [], []
@@ -144,7 +154,7 @@ class InsightFaceBackend:
             score = outs[i].reshape(-1)
             dist = outs[i + n].reshape(-1, 4) * stride
             kps = outs[i + 2 * n].reshape(-1, 10) * stride
-            centers = self._anchor_centers(stride)
+            centers = self._anchor_centers(stride, size)
             keep = score >= threshold
             c, d, k = centers[keep], dist[keep], kps[keep]
             boxes.append(np.hstack([c - d[:, :2], c + d[:, 2:]]))
@@ -153,10 +163,10 @@ class InsightFaceBackend:
         boxes, scores, kpss = np.vstack(boxes) / scale, np.concatenate(scores), np.vstack(kpss) / scale
         return [(boxes[i], float(scores[i]), kpss[i]) for i in nms(boxes, scores, 0.4)]
 
-    def _anchor_centers(self, stride: int) -> np.ndarray:
-        key = (self.det_size, self.det_size, stride)
+    def _anchor_centers(self, stride: int, det_size: int) -> np.ndarray:
+        key = (det_size, det_size, stride)
         if key not in self._centers:
-            size = self.det_size // stride
+            size = det_size // stride
             grid = np.stack(np.mgrid[:size, :size][::-1], axis=-1).astype(np.float32).reshape(-1, 2) * stride
             self._centers[key] = np.repeat(grid, self.ANCHORS, axis=0)
         return self._centers[key]
@@ -175,10 +185,12 @@ class OpenCVBackend:
         self.rec = cv2.FaceRecognizerSF.create(str(recognizer), "")
         self.max_side = cfg.det_size
 
-    def detect(self, frame: np.ndarray, threshold: float = 0.5) -> list[tuple[np.ndarray, float, np.ndarray]]:
+    def detect(self, frame: np.ndarray, threshold: float = 0.5,
+               det_size: int | None = None) -> list[tuple[np.ndarray, float, np.ndarray]]:
         h, w = frame.shape[:2]
-        scale = min(1.0, self.max_side / max(h, w))
-        small = cv2.resize(frame, (int(w * scale), int(h * scale))) if scale < 1 else frame
+        scale = (det_size or self.max_side) / max(h, w)
+        scale = scale if det_size else min(1.0, scale)  # head crops may be enlarged, whole frames are not
+        small = cv2.resize(frame, (max(1, int(w * scale)), max(1, int(h * scale)))) if scale != 1 else frame
         self.det.setInputSize((small.shape[1], small.shape[0]))
         self.det.setScoreThreshold(threshold)
         _, faces = self.det.detect(small)
@@ -208,10 +220,28 @@ class FaceRecognizer:
         self.model_id = cfg.model_id()
         self.backend = BACKENDS[cfg.backend](cfg, detector, recognizer)
 
-    def analyze(self, frame: np.ndarray) -> list[DetectedFace]:
+    def detect(self, frame: np.ndarray, regions=(), region_size: int = 320,
+               full_frame: bool = True) -> list[tuple[np.ndarray, float, np.ndarray]]:
+        """Faces in the whole frame (unless full_frame is False), plus faces found in `regions`
+        (x1, y1, x2, y2) searched at full resolution: small faces at the back of a group are
+        easier to find in a crop of the head."""
+        found = list(self.backend.detect(frame)) if full_frame else []
+        for x1, y1, x2, y2 in regions:
+            if x2 - x1 < 16 or y2 - y1 < 16:
+                continue
+            for box, score, kps in self.backend.detect(frame[y1:y2, x1:x2], det_size=region_size):
+                found.append((box + [x1, y1, x1, y1], score, kps + [x1, y1]))
+        if len(found) <= 1 or not regions or not full_frame:
+            return found
+        boxes = np.array([f[0] for f in found], dtype=np.float32)
+        scores = np.array([f[1] for f in found], dtype=np.float32)
+        return [found[i] for i in nms(boxes, scores, 0.4)]
+
+    def analyze(self, frame: np.ndarray, regions=(), region_size: int = 320,
+                full_frame: bool = True) -> list[DetectedFace]:
         c = self.cfg
         out = []
-        for box, det, landmarks in self.backend.detect(frame):
+        for box, det, landmarks in self.detect(frame, regions, region_size, full_frame):
             bbox = tuple(float(v) for v in box)
             size = min(bbox[2] - bbox[0], bbox[3] - bbox[1])
             yaw, pitch = head_pose(landmarks)

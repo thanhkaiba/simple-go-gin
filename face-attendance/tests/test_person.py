@@ -1,0 +1,181 @@
+import datetime as dt
+
+import numpy as np
+from conftest import face_image
+
+from attendance.person import ByteTracker, assign_faces, box_iou, head_region
+from attendance.processing import FrameProcessor
+from attendance.recognizer import DetectedFace
+from test_tracker import A, B, T0, obs, tracker
+
+
+def step(i, fps=5):
+    return T0 + dt.timedelta(seconds=i / fps)
+
+
+def boxes(*bs):
+    return np.array(bs, dtype=np.float32).reshape(-1, 4)
+
+
+def test_box_iou():
+    m = box_iou(boxes([0, 0, 10, 10]), boxes([0, 0, 10, 10], [5, 0, 15, 10], [20, 20, 30, 30]))
+    assert np.allclose(m, [[1.0, 1 / 3, 0.0]])
+
+
+def test_walking_person_keeps_one_id_and_first_seen_time():
+    bt = ByteTracker()
+    ids = set()
+    for i in range(15):
+        x = 100 + 12 * i
+        people = bt.update(boxes([x, 100, x + 80, 300]), np.array([0.9]), step(i))
+        ids |= {p.id for p in people}
+    assert ids == {1}
+    assert bt.alive() == {1: step(0)}
+
+
+def test_half_hidden_person_is_kept_by_a_weak_detection():
+    bt = ByteTracker()
+    for i in range(3):
+        bt.update(boxes([100, 100, 180, 300]), np.array([0.9]), step(i))
+    people = bt.update(boxes([102, 100, 182, 300]), np.array([0.2]), step(3))  # mostly covered
+    assert [p.id for p in people] == [1]
+
+
+def test_weak_detection_alone_never_starts_a_person():
+    bt = ByteTracker()
+    for i in range(5):
+        assert bt.update(boxes([100, 100, 180, 300]), np.array([0.3]), step(i)) == []
+
+
+def test_two_people_crossing_keep_their_ids():
+    bt = ByteTracker()
+    for i in range(12):
+        a, b = 100 + 20 * i, 400 - 20 * i
+        people = bt.update(boxes([a, 100, a + 80, 300], [b, 110, b + 80, 310]), np.array([0.9, 0.85]), step(i))
+    by_id = {p.id: p.box[0] for p in people}
+    assert by_id[1] > by_id[2]  # person 1 started on the left and is now on the right
+
+
+def test_person_out_of_sight_is_forgotten_after_lost_time():
+    bt = ByteTracker(lost_s=1.0)
+    for i in range(3):
+        bt.update(boxes([100, 100, 180, 300]), np.array([0.9]), step(i))
+    assert bt.update(boxes(), np.array([]), step(4)) == []
+    assert 1 in bt.alive()  # hidden for a moment: still followed
+    bt.update(boxes(), np.array([]), step(10))
+    assert bt.alive() == {}
+
+
+def test_head_region_whole_body_and_close_up():
+    # Whole body far away: the top part of the box.
+    x1, y1, x2, y2 = head_region((100, 100, 200, 400), (720, 1280))
+    assert y2 == 100 + 135 and x1 < 100 < 200 < x2
+    # Head and shoulders close to the camera: reaches below the width of the box, within the box.
+    _, _, _, y2 = head_region((100, 100, 300, 350), (720, 1280))
+    assert y2 == 340
+    # Never outside the frame.
+    assert head_region((0, 0, 50, 700), (720, 1280))[:2] == (0, 0)
+
+
+class P:
+    def __init__(self, id, box):
+        self.id, self.box = id, box
+
+
+def test_faces_go_to_the_person_whose_head_they_are_in():
+    people = [P(1, (100, 100, 200, 400)), P(2, (180, 120, 280, 420))]
+    faces = [(120, 110, 160, 150), (215, 130, 255, 170), (120, 350, 160, 390)]  # last one: at knee height
+    assert assign_faces(faces, people) == [1, 2, None]
+
+
+def test_one_face_per_person_the_larger_wins():
+    people = [P(1, (100, 100, 200, 400))]
+    assert assign_faces([(110, 110, 130, 130), (120, 110, 170, 160)], people) == [None, 1]
+
+
+# face tracker with person ids ---------------------------------------------------------------
+
+def test_faces_of_two_people_never_share_a_track():
+    tr = tracker()
+    out = []
+    for i in range(5):
+        # Same spot and similar look would normally link; the person tracks keep them apart.
+        o1, o2 = obs(A, x=100), obs(B, x=105)
+        o1.person_id, o2.person_id = 1, 2
+        out += tr.update([o1, o2], step(i), {1: T0, 2: T0})
+    assert sorted(d.employee_id for d in out if d.kind == "identified") == ["A", "B"]
+
+
+def test_followed_person_keeps_the_face_track_and_arrival_time():
+    tr = tracker(votes_required=3)
+    arrived = T0 - dt.timedelta(seconds=3)  # the body was seen before the face was usable
+    out = []
+    for i in range(2):
+        o = obs(A)
+        o.person_id = 7
+        out += tr.update([o], step(i), {7: arrived})
+    for i in range(2, 20):  # face turned away for 3.6 s, longer than track_timeout_s
+        out += tr.update([], step(i), {7: arrived})
+    o = obs(A)
+    o.person_id = 7
+    out += tr.update([o], step(20), {7: arrived})
+    assert [(d.kind, d.employee_id, d.ts) for d in out] == [("identified", "A", arrived)]
+
+
+# frame processor -----------------------------------------------------------------------------
+
+class RegionRecognizer:
+    """Records how analyze() was called; returns one face of employee A."""
+
+    def __init__(self):
+        self.calls = []
+
+    def analyze(self, frame, regions=(), region_size=320, full_frame=True):
+        from conftest import person_vector
+
+        self.calls.append((list(regions), full_frame))
+        return [DetectedFace((120.0, 110.0, 180.0, 170.0), person_vector(1), 0.9, 60.0, 100.0, 0.0, 0.0, True, 0.8)]
+
+
+class FakeDetector:
+    kind = "fake"
+
+    def detect(self, frame, min_score=0.1):
+        return boxes([100, 100, 200, 400]), np.array([0.9], dtype=np.float32)
+
+
+def test_missing_person_model_falls_back_to_faces(core):
+    app, clock, _ = core
+    app.cfg.tracking.mode = "person"
+    app._recognizer = RegionRecognizer()
+    proc = FrameProcessor(app)
+    _, matched, people = proc.process(face_image(1), step(0))
+    assert "Person tracking is off" in proc.person_error
+    assert people == [] and len(matched) == 1
+    assert app._recognizer.calls == [([], True)]
+
+
+def test_person_mode_searches_heads_every_frame_and_whole_frame_every_nth(core):
+    app, clock, _ = core
+    app.cfg.tracking.mode = "person"
+    app.cfg.tracking.full_frame_every = 3
+    app._recognizer = RegionRecognizer()
+    proc = FrameProcessor(app)
+    proc._detector = FakeDetector()
+    decisions = []
+    for i in range(7):
+        d, matched, people = proc.process(face_image(1), step(i))
+        decisions += d
+    calls = app._recognizer.calls
+    assert all(regions for regions, _ in calls)  # a confident person is followed from the first frame
+    assert [full for _, full in calls] == [True, False, False, True, False, False, True]
+    assert matched[0][2] == people[0].id  # the face belongs to the followed person
+    assert [d.employee_id for d in decisions] == ["A"]
+
+
+def test_face_mode_ignores_person_detector(core):
+    app, clock, _ = core
+    app._recognizer = RegionRecognizer()
+    proc = FrameProcessor(app)
+    proc.process(face_image(1), step(0))
+    assert proc._detector is None and proc.person_error is None

@@ -8,11 +8,14 @@ from pathlib import Path
 
 INSIGHTFACE_PACK = "https://github.com/deepinsight/insightface/releases/download/v0.7/buffalo_l.zip"
 OPENCV_ZOO = "https://media.githubusercontent.com/media/opencv/opencv_zoo/main/models/"
+YOLOX = "https://github.com/Megvii-BaseDetection/YOLOX/releases/download/0.1.1rc0/{}.onnx"
+PERSON_MODELS = ("yolox_tiny", "yolox_s")
 
 LICENCES = {
     "insightface": "InsightFace pretrained models: non-commercial research use only. "
                    "Commercial use requires a licence from InsightFace (contact@insightface.ai).",
     "opencv": "YuNet: MIT licence. SFace: Apache 2.0 licence. Free for commercial use.",
+    "person": "YOLOX: Apache 2.0 licence. Free for commercial use.",
 }
 
 
@@ -50,3 +53,14 @@ def download(backend: str, models_dir: Path) -> None:
         raise ValueError(f"unknown backend {backend}")
     print(f"Saved to {models_dir}")
     print(f"Licence: {LICENCES[backend]}")
+
+
+def download_person(name: str, models_dir: Path) -> None:
+    """YOLOX person detector for tracking.mode: person."""
+    if name not in PERSON_MODELS:
+        raise ValueError(f"unknown person model {name}")
+    models_dir.mkdir(parents=True, exist_ok=True)
+    dest = models_dir / f"{name}.onnx"
+    _fetch_to(YOLOX.format(name), dest)
+    print(f"Saved to {dest}")
+    print(f"Licence: {LICENCES['person']}")

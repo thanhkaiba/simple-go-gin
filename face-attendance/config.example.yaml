@@ -44,6 +44,16 @@ recognition:
   track_timeout_s: 1.5
   unknown_min_frames: 3   # faces seen in fewer frames than this are ignored instead of reported
 
+tracking:
+  # face:   follow faces between frames (light; fine for one or two people at a time).
+  # person: also detect and follow whole people (YOLOX + ByteTrack), so names stay apart when a
+  #         group walks in together. Needs: python -m attendance download-models --person
+  mode: face
+  person_model: models/yolox_tiny.onnx  # yolox_s.onnx is more accurate and about 3x slower
+  person_conf: 0.5        # confidence needed to start following a person
+  head_crop_size: 320     # faces are also searched in each person's head region at this size
+  full_frame_every: 4     # person mode: search the whole frame for faces every Nth frame only
+
 google_chat:
   webhook_url: ""         # Space -> Apps & integrations -> Webhooks -> Add webhook
   mention_people: true    # @mention late and missing people (needs each employee's Google Chat user ID)

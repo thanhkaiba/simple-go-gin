@@ -59,7 +59,7 @@ The detection and recognition models were picked on their merits. Two backends a
 > Company attendance is a commercial use. Either get an InsightFace licence or set `backend: opencv` in `config.yaml`. Run `evaluate` with both first to see the difference on your photos.
 
 Other design decisions:
-- **No YOLO.** A generic YOLO detector gives no facial landmarks (needed for alignment), and Ultralytics YOLOv8 is AGPL-3.0.
+- **Faces come from a face detector, not YOLO.** A generic YOLO model gives no facial landmarks (needed for alignment). A person detector is only used, optionally, to follow people in groups (below).
 - **No `insightface` package.** The ONNX models run directly on onnxruntime, so nothing needs compiling.
 - **No cloud.** Recognition stays on the office computer and images never leave it.
 
@@ -94,6 +94,8 @@ You need **Python 3.10 or newer**.
    python -m attendance run
    ```
 3. When macOS asks whether Python may accept incoming network connections, click **Allow**.
+
+Older Intel Macs (e.g. 2017 models) work. On macOS 12 or older use **Python 3.12** (not 3.13): pip then installs the last onnxruntime and OpenCV versions built for that macOS. See [Slow computer](#slow-computer-eg-a-2017-mac) for settings.
 
 ### Linux
 
@@ -296,7 +298,60 @@ Everything is stored in the `data/` folder:
 
 **Wi-Fi cameras on a desk** drop frames. A wired PoE camera is more reliable.
 
-**Slow computer:** lower *Frames per second* in Settings, or use `backend: opencv` (about 10× faster).
+## Groups of people (person tracking)
+
+When several people walk in together, faces turn away and cover each other for a moment. In the
+default **face** mode each face is followed on its own, so a face that disappears for more than
+`track_timeout_s` starts a new track and its earlier votes are lost.
+
+**Person** mode (Settings → Camera → Groups of people, or `tracking.mode: person`) also detects
+and follows whole bodies:
+- [YOLOX](https://github.com/Megvii-BaseDetection/YOLOX) person detector (Apache-2.0) and
+  [ByteTrack](https://github.com/ifzhang/ByteTrack) (MIT, re-implemented in numpy). A
+  half-hidden person is kept by low-confidence detections instead of being dropped.
+- A face track stays attached to its person while the face is out of sight, so votes from
+  every frame where the face was visible add up, and faces of two people are never merged.
+- Faces are also searched in each person's head region at full resolution, which finds the
+  small faces at the back of a group.
+- The arrival time is when the person first appeared, not when their face was first sharp.
+
+Install the model once:
+```bash
+python -m attendance download-models --person            # yolox_tiny (fast, recommended)
+python -m attendance download-models --person yolox_s    # more accurate, about 3x slower
+```
+Then set `tracking.person_model: models/yolox_s.onnx` if you chose `yolox_s`. If the model
+file is missing the camera keeps working in face mode and the Live camera page says why.
+A YOLOv8 ONNX export also works, but Ultralytics models are AGPL-3.0: check the licence first.
+
+**Is this computer fast enough?** Record a minute of people walking in (any video file) and run:
+```bash
+python -m attendance benchmark entrance.mp4
+```
+It runs the video through both modes and prints the frames per second and who was recognised,
+without touching the attendance data.
+
+Measured on a 4-core server CPU, 1280x720, one person plus a group in view:
+
+| | face mode | person mode (yolox_tiny) |
+|---|---|---|
+| `insightface` | ~360 ms per frame | ~375 ms per frame |
+| `opencv` | ~40 ms per frame | ~115 ms per frame |
+
+Person mode only searches the whole frame for faces every `full_frame_every` frames (4 by
+default) and the head regions on every frame, so it costs little extra with `insightface`.
+
+### Slow computer (e.g. a 2017 Mac)
+
+An Intel Mac from 2017 is roughly half as fast as the numbers above. In order of effect:
+1. `recognition.backend: opencv`: about 10x faster (also free for commercial use). Check the
+   accuracy difference on your photos with `evaluate` first.
+2. *Frames per second* in Settings: 2-3 is enough for people walking past. When the computer
+   is slower than this it simply skips frames; nothing breaks, but fewer frames vote.
+3. In person mode: keep `yolox_tiny` and raise `full_frame_every`.
+4. Keep the Live camera page closed when not needed (drawing the picture costs CPU).
+
+Run `benchmark` on the real machine and pick the combination that reaches the frame rate you set.
 
 ## How wrong identifications are avoided
 

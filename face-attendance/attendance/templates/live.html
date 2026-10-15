@@ -23,6 +23,7 @@
       <div><div class="hint">Camera</div><span class="badge info" id="camera">…</span></div>
       <div><div class="hint">Frames analysed per second</div><strong id="fps">–</strong></div>
       <div><div class="hint">Faces in view</div><div id="faces" class="muted">–</div></div>
+      <div id="people-box" style="display:none"><div class="hint">People followed</div><strong id="people">–</strong></div>
       <div><div class="hint">Last recognised</div><div id="last" class="muted">–</div></div>
     </div>
     <div class="card small">
@@ -48,6 +49,8 @@
       cam.className = 'badge ' + (s.camera === 'ok' ? 'ok' : s.camera.startsWith('problem') || s.camera.startsWith('no picture') ? 'bad' : 'info');
       document.getElementById('fps').textContent = s.fps;
       document.getElementById('faces').textContent = s.faces.length ? s.faces.join(' · ') : '–';
+      document.getElementById('people-box').style.display = s.people === null ? 'none' : '';
+      document.getElementById('people').textContent = s.people === null ? '–' : s.people;
       document.getElementById('last').textContent = s.last_identified || '–';
       const p = document.getElementById('problem'); p.hidden = !s.problem; p.textContent = s.problem || '';
       document.getElementById('start').hidden = s.in_window || s.previewing;

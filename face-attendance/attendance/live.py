@@ -50,6 +50,7 @@ class LiveStatus:
     problem: str | None = None  # model or configuration problem shown on the page
     fps: float = 0.0
     faces: list[str] = field(default_factory=list)
+    people: int = 0  # people followed in the last frame (person tracking)
     last_identified: str = ""
     preview_until: float = 0.0
     _jpeg: bytes | None = None

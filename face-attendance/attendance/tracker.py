@@ -3,6 +3,10 @@
 A single frame is never trusted: a person is identified when at least `votes_required`
 good frames agree on them with a clear margin over the runner-up. Tracks that end without
 a decision become "unknown" so an admin can look at them.
+
+With person tracking on, each face carries the id of the person (body) it belongs to. Faces of
+the same person always join the same track, faces of different people never do, and the track
+lives as long as the person is followed, even while their face is hidden.
 """
 from __future__ import annotations
 
@@ -31,6 +35,7 @@ class Observation:
     quality_ok: bool
     quality: float  # used to pick the best image of a track
     crop: Any = None
+    person_id: int | None = None  # the person (body) track this face belongs to, if known
 
 
 @dataclass
@@ -55,6 +60,7 @@ class _Track:
     best_score: dict[str, float] = field(default_factory=dict)
     best: Observation | None = None
     decided: str | None = None
+    person_id: int | None = None
 
 
 def iou(a, b) -> float:
@@ -74,17 +80,26 @@ class FaceTracker:
         self._ended: list[_Track] = []  # undecided tracks waiting out SPLIT_WINDOW before becoming "unknown"
         self._ids = itertools.count(1)
         self._recent: dict[str, dt.datetime] = {}  # employee -> last time a track identified them
+        self._people: dict[int, dt.datetime] = {}  # person tracks currently followed
 
-    def update(self, observations: list[Observation], ts: dt.datetime) -> list[Decision]:
+    def update(self, observations: list[Observation], ts: dt.datetime,
+               people: dict[int, dt.datetime] | None = None) -> list[Decision]:
+        """`people`: person tracks still followed (id -> when that person first appeared), when
+        person tracking is on. Their face tracks stay open while the face is out of sight."""
+        self._people = people or {}
         decisions = self._expire(ts)
         free = list(self._tracks)
         for obs in observations:
             track = self._link(obs, free)
             if track is None:
-                track = _Track(next(self._ids), ts, ts, obs.bbox, obs.embedding)
+                first = min(ts, self._people.get(obs.person_id, ts))  # arrival = when the person appeared
+                track = _Track(next(self._ids), first, ts, obs.bbox, obs.embedding, person_id=obs.person_id)
                 self._tracks.append(track)
             else:
                 free.remove(track)
+                if track.person_id is None and obs.person_id is not None:
+                    track.person_id = obs.person_id
+                    track.first_ts = min(track.first_ts, self._people.get(obs.person_id, track.first_ts))
             decision = self._observe(track, obs, ts)
             if decision:
                 decisions.append(decision)
@@ -96,8 +111,14 @@ class FaceTracker:
         return self._expire(far_future, force=True)
 
     def _link(self, obs: Observation, tracks: list[_Track]) -> _Track | None:
+        if obs.person_id is not None:
+            for t in tracks:
+                if t.person_id == obs.person_id:
+                    return t
         best, best_value = None, 0.0
         for t in tracks:
+            if obs.person_id is not None and t.person_id is not None:
+                continue  # a face of one person never joins another person's track
             sim = float(np.dot(obs.embedding, t.embedding))
             overlap = iou(obs.bbox, t.bbox)
             if sim < LINK_MIN_SIM or (overlap < LINK_IOU and sim < LINK_SIM):
@@ -145,7 +166,8 @@ class FaceTracker:
         timeout = dt.timedelta(seconds=self.p.track_timeout_s)
         alive, decisions = [], []
         for t in self._tracks:
-            if not force and now - t.last_ts <= timeout:
+            following = t.person_id is not None and t.person_id in self._people
+            if not force and (following or now - t.last_ts <= timeout):
                 alive.append(t)
             elif t.decided:
                 self._recent[t.decided] = t.last_ts

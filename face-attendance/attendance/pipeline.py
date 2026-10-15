@@ -17,7 +17,7 @@ from .live import FrameHealth, LiveStatus
 from .notifier import GoogleChat
 from .service import AttendanceService
 from .store import Store
-from .tracker import Decision, FaceTracker, Observation
+from .tracker import Decision
 
 log = logging.getLogger(__name__)
 
@@ -111,12 +111,16 @@ def face_label(app: App, face, candidates) -> tuple[str, tuple[int, int, int]]:
     return f"? {reason}", (0, 165, 255)
 
 
-def draw(frame, labelled) -> bytes:
+def draw(frame, labelled, people=()) -> bytes:
     import cv2
 
     from .faces import encode_jpeg
 
     canvas = frame.copy()
+    for p in people:  # person tracking: thin grey box with the person's track number
+        x1, y1, x2, y2 = (int(v) for v in p.box)
+        cv2.rectangle(canvas, (x1, y1), (x2, y2), (170, 170, 170), 1)
+        cv2.putText(canvas, f"#{p.id}", (x1 + 4, y2 - 6), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (170, 170, 170), 1)
     for face, (text, colour) in labelled:
         x1, y1, x2, y2 = (int(v) for v in face.bbox)
         cv2.rectangle(canvas, (x1, y1), (x2, y2), colour, 2)
@@ -129,7 +133,8 @@ def draw(frame, labelled) -> bytes:
 
 def run(cfg: Config) -> None:
     from .camera import Camera
-    from .recognizer import crop_face, enhance_low_light
+    from .processing import FrameProcessor
+    from .recognizer import enhance_low_light
 
     app = App(cfg)
     service, live = app.service, app.live
@@ -156,7 +161,7 @@ def run(cfg: Config) -> None:
     if missing:
         log.warning("No reference photos for: %s", ", ".join(missing))
 
-    tracker = FaceTracker(cfg.recognition)
+    processor = FrameProcessor(app)
     health = FrameHealth()
     camera: Camera | None = None
     last_processed = last_ping = last_tick = 0.0
@@ -178,7 +183,7 @@ def run(cfg: Config) -> None:
         now = service.now()
         in_window = service.in_window(now)
         if was_in_window and not in_window:
-            handle(tracker.flush())
+            handle(processor.flush())
         was_in_window = in_window
         camera_ok = True
 
@@ -202,17 +207,16 @@ def run(cfg: Config) -> None:
                 live.camera_state = f"problem: {problem}" if problem else "ok"
                 if cfg.camera.enhance_low_light:
                     frame = enhance_low_light(frame)
-                with app.recognizer_lock:
-                    faces = recognizer.analyze(frame)
-                pairs = [(f, app.gallery.match(f.embedding)) for f in faces]
-                if in_window:
-                    observations = [Observation(f.bbox, f.embedding, c, f.quality_ok, f.quality, crop_face(frame, f.bbox))
-                                    for f, c in pairs]
-                    handle(tracker.update(observations, dt.datetime.fromtimestamp(frame_time, service.tz)))
-                labelled = [(f, face_label(app, f, c)) for f, c in pairs]
+                ts = dt.datetime.fromtimestamp(frame_time, service.tz)
+                decisions, matched, people = processor.process(frame, ts, record=in_window)
+                handle(decisions)
+                if processor.person_error and live.problem is None:
+                    live.problem = processor.person_error
+                labelled = [(f, face_label(app, f, c)) for f, c, _ in matched]
                 live.faces = [text for _, (text, _) in labelled]
+                live.people = len(people)
                 if live.wants_frame():
-                    live.set_frame(draw(frame, labelled))
+                    live.set_frame(draw(frame, labelled, people))
                 fps_count += 1
             else:
                 time.sleep(0.02)
