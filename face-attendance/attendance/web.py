@@ -483,7 +483,7 @@ def create_app(core: "App") -> Flask:
     def live_json():
         _, frame_time = live.frame()  # counts as a viewer, so the camera loop keeps drawing frames
         return jsonify(camera=live.camera_state, problem=live.problem, fps=round(live.fps, 1), faces=live.faces,
-                       people=live.people if cfg.tracking.mode == "person" else None,
+                       people=live.people if cfg.tracking.mode == "person" else None, pose=core.pose.describe(),
                        last_identified=live.last_identified, previewing=live.previewing,
                        in_window=service.in_window(service.now()),
                        frame_age=round(time.time() - frame_time, 1) if frame_time else None)
@@ -510,7 +510,8 @@ def create_app(core: "App") -> Flask:
 
     @app.get("/settings")
     def settings_page():
-        return render_template("settings.html", s=settings.current(cfg), cfg=cfg, leave=leave_status())
+        return render_template("settings.html", s=settings.current(cfg), cfg=cfg, leave=leave_status(),
+                               pose=core.pose.describe())
 
     @app.post("/settings")
     def save_settings():
@@ -537,6 +538,12 @@ def create_app(core: "App") -> Flask:
         store.log(service.now(), user(), "change settings",
                   ", ".join(f"{s}.{n}" if s else n for s, f in changes.items() for n in f))
         return done("Settings saved and applied.", "settings_page")
+
+    @app.post("/settings/pose-reset")
+    def reset_pose():
+        core.pose.reset()
+        store.log(service.now(), user(), "relearn camera angle", "")
+        return done("The camera angle will be learned again from the next faces.", "settings_page")
 
     @app.post("/settings/test-chat")
     def test_chat():

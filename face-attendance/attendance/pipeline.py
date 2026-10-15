@@ -14,6 +14,7 @@ from .faces import FaceLibrary
 from .gallery import Gallery
 from .leave_api import LeaveSync
 from .live import FrameHealth, LiveStatus
+from .posecal import PoseCalibration
 from .notifier import GoogleChat
 from .service import AttendanceService
 from .store import Store
@@ -48,6 +49,7 @@ class App:
         self.service.library = self.library
         self.leave_sync = LeaveSync(cfg, self.store, self.service.now, lambda d: self.service.window(d).late_after)
         self.live = LiveStatus()
+        self.pose = PoseCalibration(self.store, lambda: cfg.recognition.auto_pose)
 
     def recognizer(self):
         if self._recognizer is None:
@@ -99,7 +101,7 @@ def face_label(app: App, face, candidates) -> tuple[str, tuple[int, int, int]]:
         reason = "too small"
     elif face.sharpness < rc.min_sharpness:
         reason = "blurred"
-    elif face.yaw > rc.max_yaw or abs(face.pitch) > rc.max_pitch:
+    elif abs(face.yaw) > rc.max_yaw or abs(face.pitch) > rc.max_pitch:
         reason = "turned away"
     elif face.det_score < rc.min_det_score:
         reason = "unclear"

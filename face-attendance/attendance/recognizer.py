@@ -36,12 +36,14 @@ class DetectedFace:
     det_score: float
     size: float  # shorter side of the box, in pixels
     sharpness: float
-    yaw: float  # degrees, estimated from the landmarks
-    pitch: float  # degrees, rough estimate from the landmarks
+    yaw: float  # degrees, signed, relative to how this camera normally sees faces (see posecal)
+    pitch: float  # degrees, signed (+ = seen from above), relative likewise; a rough estimate
     quality_ok: bool
     quality: float
     landmarks: np.ndarray | None = None  # 5 points: eyes, nose, mouth corners
     size_ok: bool = True  # big and clearly detected; the rest of the gate (pose, blur) can be outweighed
+    raw_yaw: float | None = None  # pose as estimated, before the camera's usual angle is taken off
+    raw_pitch: float | None = None
 
 
 def enhance_low_light(frame: np.ndarray, threshold: float = 90.0) -> np.ndarray:
@@ -68,10 +70,11 @@ def sharpness(frame: np.ndarray, bbox) -> float:
 
 
 def head_pose(landmarks: np.ndarray) -> tuple[float, float]:
-    """Approximate (yaw, pitch) in degrees from eyes, nose tip and mouth corners.
+    """Approximate signed (yaw, pitch) in degrees from eyes, nose tip and mouth corners.
 
     When the head turns, the nose tip moves sideways relative to the eyes by roughly
-    0.55 * eye distance * tan(yaw). Pitch uses where the nose sits between eyes and mouth.
+    0.55 * eye distance * tan(yaw). Pitch uses where the nose sits between eyes and mouth;
+    it is positive when the face is seen from above (or tilted down).
     """
     eyes, nose, mouth = landmarks[:2], landmarks[2], landmarks[3:5]
     eye_mid, mouth_mid = eyes.mean(axis=0), mouth.mean(axis=0)
@@ -79,7 +82,7 @@ def head_pose(landmarks: np.ndarray) -> tuple[float, float]:
     face_height = float(mouth_mid[1] - eye_mid[1])
     if eye_dist < 1 or face_height < 1:
         return 90.0, 90.0
-    yaw = math.degrees(math.atan(abs(nose[0] - eye_mid[0]) / eye_dist / 0.55))
+    yaw = math.degrees(math.atan((nose[0] - eye_mid[0]) / eye_dist / 0.55))
     pitch = (float(nose[1] - eye_mid[1]) / face_height - 0.55) * 150
     return yaw, pitch
 
@@ -251,25 +254,29 @@ class FaceRecognizer:
         return [found[i] for i in nms(boxes, scores, 0.4)]
 
     def analyze(self, frame: np.ndarray, regions=(), region_size: int = 320,
-                full_frame: bool = True) -> list[DetectedFace]:
+                full_frame: bool = True, pose_offset: tuple[float, float] = (0.0, 0.0)) -> list[DetectedFace]:
+        """`pose_offset`: how this camera normally sees faces (yaw, pitch); the pose check is made
+        relative to it. Photos (enrolment, evaluation) use a straight-on view."""
         c = self.cfg
         out = []
         for box, det, landmarks in self.detect(frame, regions, region_size, full_frame):
             bbox = tuple(float(v) for v in box)
             size = min(bbox[2] - bbox[0], bbox[3] - bbox[1])
-            yaw, pitch = head_pose(landmarks)
+            raw_yaw, raw_pitch = head_pose(landmarks)
+            yaw, pitch = raw_yaw - pose_offset[0], raw_pitch - pose_offset[1]
             sharp = sharpness(frame, bbox)
             size_ok = size >= c.min_face_px and det >= c.min_det_score
-            ok = size_ok and sharp >= c.min_sharpness and yaw <= c.max_yaw and abs(pitch) <= c.max_pitch
+            ok = size_ok and sharp >= c.min_sharpness and abs(yaw) <= c.max_yaw and abs(pitch) <= c.max_pitch
             quality = (det * min(1.0, size / 112) * min(1.0, sharp / 150)
-                       * math.cos(math.radians(min(yaw, 89))) * math.cos(math.radians(min(abs(pitch), 89))))
+                       * math.cos(math.radians(min(abs(yaw), 89))) * math.cos(math.radians(min(abs(pitch), 89))))
             try:
                 emb = self.backend.embed(frame, landmarks).astype(np.float32)
             except ValueError:  # unusable landmarks: skip this face rather than stop the camera loop
                 continue
 
             emb /= max(float(np.linalg.norm(emb)), 1e-12)
-            out.append(DetectedFace(bbox, emb, det, size, sharp, yaw, pitch, ok, quality, landmarks, size_ok))
+            out.append(DetectedFace(bbox, emb, det, size, sharp, yaw, pitch, ok, quality, landmarks, size_ok,
+                                    raw_yaw, raw_pitch))
         return out
 
     def largest_face(self, image: np.ndarray, mirror: bool = False) -> DetectedFace | None:

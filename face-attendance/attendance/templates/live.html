@@ -45,6 +45,7 @@
       <div><div class="hint">Faces in view</div><div id="faces" class="muted">–</div></div>
       <div id="people-box" style="display:none"><div class="hint">People followed</div><strong id="people">–</strong></div>
       <div><div class="hint">Last recognised</div><div id="last" class="muted">–</div></div>
+      <div><div class="hint">Camera angle (learned)</div><div id="pose" class="muted small">–</div></div>
     </div>
     <div class="card small">
       <div style="display:grid; gap:6px">
@@ -72,6 +73,7 @@
       document.getElementById('people-box').style.display = s.people === null ? 'none' : '';
       document.getElementById('people').textContent = s.people === null ? '–' : s.people;
       document.getElementById('last').textContent = s.last_identified || '–';
+      document.getElementById('pose').textContent = s.pose || '–';
       const p = document.getElementById('problem'); p.hidden = !s.problem; p.textContent = s.problem || '';
       document.getElementById('start').hidden = s.in_window || s.previewing;
       document.getElementById('stop').hidden = !s.previewing;

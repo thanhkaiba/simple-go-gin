@@ -130,7 +130,7 @@ class RegionRecognizer:
     def __init__(self):
         self.calls = []
 
-    def analyze(self, frame, regions=(), region_size=320, full_frame=True):
+    def analyze(self, frame, regions=(), region_size=320, full_frame=True, pose_offset=(0.0, 0.0)):
         from conftest import person_vector
 
         self.calls.append((list(regions), full_frame))
@@ -203,7 +203,7 @@ def test_area_setting_is_parsed_and_validated():
 
 
 class CropRecognizer(RegionRecognizer):
-    def analyze(self, frame, regions=(), region_size=320, full_frame=True):
+    def analyze(self, frame, regions=(), region_size=320, full_frame=True, pose_offset=(0.0, 0.0)):
         from conftest import person_vector
 
         self.calls.append((frame.shape, list(regions), full_frame))

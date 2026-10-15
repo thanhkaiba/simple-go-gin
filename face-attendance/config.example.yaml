@@ -40,6 +40,7 @@ recognition:
   min_sharpness: 40
   max_yaw: 35
   max_pitch: 30
+  auto_pose: true         # learn the camera's usual view of faces and measure turn/tilt from it
   # Identification. Tune these two with: python -m attendance evaluate
   accept_score: 0.45      # cosine similarity for a frame to vote; start around 0.45 (insightface) or 0.40 (opencv)
   min_margin: 0.08        # and it must beat the second most similar person by this much

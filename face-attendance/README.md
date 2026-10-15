@@ -333,6 +333,13 @@ Everything is stored in the `data/` folder:
 - Faces at least 80 px wide (check on the Live camera page).
 - The detector looks at the picture shrunk to `det_size` (640 px by default). A 1080p camera is shrunk three times, so an 80 px face becomes 27 px for the detector; if faces are small or far away, set `det_size: 960` in `config.yaml` (slower, more accurate).
 
+**Camera angle.** Head turn and tilt are estimated from 5 points on the face, and a camera on a desk
+pointing up (or above a door pointing down) makes every face look tilted. The system therefore
+**learns how this camera normally sees faces** from the first ~30 clear matches, and judges turn and
+tilt relative to that (Settings → Recognition → Advanced shows what it learned; the Live camera page
+too). After moving the camera, click *Learn again* there. Still, keep the camera below about 15° of
+tilt: faces seen steeply from below or above are harder for any model.
+
 **Light** should come from in front of people. **Never** point the camera at a glass door or window (backlight).
 
 **Masks and sunglasses:**
@@ -426,7 +433,7 @@ Lessons built into the settings:
 ## How wrong identifications are avoided
 
 1. **5-point alignment:** every face is aligned before its embedding is computed.
-2. **Quality gate:** small, blurred, turned-away or weakly detected faces **do not vote**, unless a big, clearly detected face matches one person far above the threshold (pose is only estimated, and a high camera makes every face look tilted).
+2. **Quality gate:** small, blurred, turned-away or weakly detected faces **do not vote**, unless a big, clearly detected face matches one person far above the threshold. Turn and tilt are measured from the camera's usual view of faces, learned automatically.
 3. **Several references per person:** a person's score is the mean of their two closest reference photos.
 4. **Clear margin:** the best match must beat the runner-up by a margin.
 5. **Several frames must agree:** at least twice as many votes as everyone else combined. A track that ends one vote short is still accepted when all its votes agree and the match is very strong (fast walkers).

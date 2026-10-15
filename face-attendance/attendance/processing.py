@@ -9,7 +9,7 @@ import numpy as np
 
 from .person import ByteTracker, PersonDetector, PersonTrack, assign_faces, head_region
 from .recognizer import DetectedFace, crop_face
-from .tracker import Decision, FaceTracker, Observation
+from .tracker import Decision, FaceTracker, Observation, clear_match
 
 log = logging.getLogger(__name__)
 
@@ -74,9 +74,13 @@ class FrameProcessor:
             full_frame = not people or self._frames % self.cfg.tracking.full_frame_every == 0
             self._frames += 1
         with self.app.recognizer_lock:
-            faces = self.app.recognizer().analyze(frame, regions, self.cfg.tracking.head_crop_size, full_frame)
+            faces = self.app.recognizer().analyze(frame, regions, self.cfg.tracking.head_crop_size, full_frame,
+                                                  self.app.pose.offset)
         owners = assign_faces([f.bbox for f in faces], people) if people else [None] * len(faces)
         matched = [(f, self.app.gallery.match(f.embedding), pid) for f, pid in zip(faces, owners)]
+        for f, c, _ in matched:  # clear matches teach how this camera sees faces
+            if f.size_ok and f.raw_pitch is not None and clear_match(c, self.cfg.recognition):
+                self.app.pose.add(f.raw_yaw, f.raw_pitch)
         decisions = []
         if record:
             observations = [Observation(f.bbox, f.embedding, c, f.quality_ok, f.quality, crop_face(frame, f.bbox), pid,

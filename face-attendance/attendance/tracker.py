@@ -32,6 +32,15 @@ STRONG_BONUS = 0.1
 STRONG_MATCH = 0.15
 
 
+def clear_match(candidates, params) -> bool:
+    """One person far above accept_score, with twice the usual margin over the next."""
+    if not candidates:
+        return False
+    top = candidates[0][1]
+    margin = top - (candidates[1][1] if len(candidates) > 1 else -1.0)
+    return top >= params.accept_score + STRONG_MATCH and margin >= 2 * params.min_margin
+
+
 def vote_for(candidates, quality_ok: bool, size_ok: bool, params) -> str | None:
     """The person this face votes for, or None: a clear match on a usable face."""
     if not candidates:
@@ -42,8 +51,7 @@ def vote_for(candidates, quality_ok: bool, size_ok: bool, params) -> str | None:
         return None
     if quality_ok:
         return person
-    strong = top >= params.accept_score + STRONG_MATCH and margin >= 2 * params.min_margin
-    return person if size_ok and strong else None
+    return person if size_ok and clear_match(candidates, params) else None
 
 
 @dataclass

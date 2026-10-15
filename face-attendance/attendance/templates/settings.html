@@ -151,6 +151,10 @@
           {{ field('recognition', 'max_yaw', 'Max head turn (°)', type='number', step='1') }}
           {{ field('recognition', 'max_pitch', 'Max head tilt (°)', type='number', step='1') }}
         </div>
+        <div style="margin-top:10px">{{ check('recognition', 'auto_pose', 'Learn the camera angle (turn and tilt are measured from how this camera usually sees faces)') }}
+          <span class="hint">Now: {{ pose }}. After moving the camera:
+            <button class="btn-sm" formaction="{{ url_for('reset_pose') }}" formnovalidate>Learn again</button></span>
+        </div>
       </details>
     </div>
 

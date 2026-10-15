@@ -287,3 +287,15 @@ def test_setup_can_be_put_off(tmp_path):
     assert c.get("/").status_code == 200
     resp = c.post("/setup/save", data={"camera.url": ""}, follow_redirects=True)
     assert "Nothing to save" in resp.get_data(as_text=True)
+
+
+def test_camera_angle_shown_and_relearned(core):
+    app, _, _ = core
+    c = client(app)
+    for _ in range(40):
+        app.pose.add(0.0, -20.0)
+    assert "20° from below" in c.get("/settings").get_data(as_text=True)
+    assert "20° from below" in c.get("/live.json").get_json()["pose"]
+    c.post("/settings/pose-reset")
+    assert app.pose.samples == 0
+    assert "relearn camera angle" in c.get("/audit").get_data(as_text=True)

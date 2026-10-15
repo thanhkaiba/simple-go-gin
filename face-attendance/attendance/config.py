@@ -106,6 +106,9 @@ class RecognitionConfig:
     # Remove the direction all face embeddings share before comparing (see gallery.py). Scores
     # get lower, so set accept_score again from `evaluate`, which compares both ways.
     center_embeddings: bool = False
+    # Judge head pose relative to how this camera normally sees faces (learned from clear matches),
+    # so a camera on a desk looking up, or above a door looking down, does not reject every face.
+    auto_pose: bool = True
     min_margin: float = 0.08
     votes_required: int = 3
     track_timeout_s: float = 1.5
