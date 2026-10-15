@@ -1,9 +1,14 @@
-"""Google Chat incoming webhook with a persistent outbox, so messages survive network loss and restarts."""
+"""Google Chat incoming webhook with a persistent outbox, so messages survive network loss and restarts.
+
+Delivery can run on its own thread (`start_background`): a slow or unreachable webhook then
+never holds up the camera loop, which would otherwise miss people walking past.
+"""
 from __future__ import annotations
 
 import datetime as dt
 import json
 import logging
+import threading
 import urllib.request
 from typing import Callable
 
@@ -14,6 +19,7 @@ log = logging.getLogger(__name__)
 # Messages sharing a threadKey are grouped into one thread; we use one thread per day.
 THREAD_OPTION = "messageReplyOption=REPLY_MESSAGE_FALLBACK_TO_NEW_THREAD"
 MAX_AGE = dt.timedelta(hours=24)
+RETRY_EVERY_S = 30.0  # the background worker retries undelivered messages this often
 
 
 def _http_post(url: str, payload: dict) -> None:
@@ -34,6 +40,23 @@ class GoogleChat:
         self._url = webhook_url if callable(webhook_url) else (lambda: webhook_url)
         self.store = store
         self._post = post
+        self._flushing = threading.Lock()  # one delivery pass at a time
+        self._wake: threading.Event | None = None  # set once the background worker runs
+
+    def start_background(self) -> None:
+        """Deliver from a worker thread instead of the caller's thread."""
+        if self._wake is None:
+            self._wake = threading.Event()
+            threading.Thread(target=self._worker, name="google-chat", daemon=True).start()
+
+    def _worker(self) -> None:
+        while True:
+            self._wake.wait(RETRY_EVERY_S)
+            self._wake.clear()
+            try:
+                self.flush(dt.datetime.now(dt.timezone.utc))
+            except Exception:
+                log.exception("Google Chat delivery crashed")
 
     @property
     def webhook_url(self) -> str:
@@ -47,7 +70,14 @@ class GoogleChat:
         if thread_key:
             payload["thread"] = {"threadKey": thread_key}
         self.store.enqueue(payload, now)
-        self.flush(now)
+        self.kick(now)
+
+    def kick(self, now: dt.datetime) -> None:
+        """Deliver what is queued: on the worker thread when it runs, otherwise right here."""
+        if self._wake is not None:
+            self._wake.set()
+        else:
+            self.flush(now)
 
     def send_now(self, text: str, url: str | None = None) -> None:
         """Send directly, raising on failure; used to test the webhook."""
@@ -57,18 +87,19 @@ class GoogleChat:
         """Deliver queued messages in order; stop at the first failure and retry on the next call."""
         if not self.webhook_url:
             return
-        for item_id, payload, created_at in self.store.outbox():
-            if now - created_at > MAX_AGE:
-                log.error("Dropping undelivered Google Chat message older than %s: %s", MAX_AGE, payload)
+        with self._flushing:
+            for item_id, payload, created_at in self.store.outbox():
+                if now - created_at > MAX_AGE:
+                    log.error("Dropping undelivered Google Chat message older than %s: %s", MAX_AGE, payload)
+                    self.store.outbox_done(item_id)
+                    continue
+                url = self.webhook_url
+                if "thread" in payload:
+                    url += ("&" if "?" in url else "?") + THREAD_OPTION
+                try:
+                    self._post(url, payload)
+                except Exception as exc:  # network errors, HTTP 4xx/5xx
+                    log.warning("Google Chat delivery failed, will retry: %s", exc)
+                    self.store.outbox_failed(item_id)
+                    return
                 self.store.outbox_done(item_id)
-                continue
-            url = self.webhook_url
-            if "thread" in payload:
-                url += ("&" if "?" in url else "?") + THREAD_OPTION
-            try:
-                self._post(url, payload)
-            except Exception as exc:  # network errors, HTTP 4xx/5xx
-                log.warning("Google Chat delivery failed, will retry: %s", exc)
-                self.store.outbox_failed(item_id)
-                return
-            self.store.outbox_done(item_id)

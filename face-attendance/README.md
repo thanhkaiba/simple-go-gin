@@ -34,7 +34,7 @@ Times are set on the Settings page; defaults shown.
 
 - **10:00:** everyone not seen yet (each person @mentioned), plus who is on leave and who has no reference photos.
 - **Late arrival:** as it happens, with an @mention.
-- **Daily late message** when the camera stops (11:00 by default), as its own message: "Morning, coming late today: @Jennie Luu (10:15), and @Steven Hoang (10:32)". The wording can be changed in Settings; it can also be sent earlier from the Today page after checking it.
+- **Daily late message** when the camera stops (11:00 by default), as its own message: "Morning, coming late today: @Jennie Luu (10:15), and @Steven Hoang (10:32)". The wording can be changed in Settings; it can also be sent earlier from the Today page after checking it. Sending it for another day than today puts that day in front of the message.
 - **Unidentified faces:** batched every 5 minutes at most, with a link to review them.
 - **Correction:** a short update whenever the admin fixes something after the 10:00 list went out.
 - **11:00:** daily summary.
@@ -202,6 +202,8 @@ Google Chat only turns a name into a real @mention (with a notification) when it
 - on the employee's page, then click **Send test mention** to check that it works;
 - or in bulk, with a `chat_user` column in the employees CSV import.
 
+The ID is a number; `users/123…` as copied from a page address is accepted too. Anything else is refused, because a wrong ID would silently become plain text.
+
 People without an ID still appear as "@Name", but as plain text, without a notification. The Today page lists who is missing an ID.
 
 ## 5. Keep it running
@@ -257,7 +259,10 @@ WantedBy=multi-user.target
 sudo systemctl enable --now attendance
 ```
 
-**Alert when the computer stops.** Create a free check on [Healthchecks.io](https://healthchecks.io) with a 1-minute period and 5-minute grace, and enter its ping URL in Settings. If the computer or the program stops, Healthchecks.io sends an email.
+**If Google Chat is slow or unreachable**, messages wait in a queue on disk and are delivered later, in order; the camera keeps running meanwhile. Messages older than a day are dropped.
+
+**Alert when the computer stops.**
+ Create a free check on [Healthchecks.io](https://healthchecks.io) with a 1-minute period and 5-minute grace, and enter its ping URL in Settings. If the computer or the program stops, Healthchecks.io sends an email.
 
 **Remote access.** The admin page only works inside the office network by default. For remote access, install [Tailscale](https://tailscale.com) on this computer and the admin's devices. Never open a port to the internet.
 
@@ -281,6 +286,7 @@ Everything is stored in the `data/` folder:
 - Mount it where everyone **must walk towards it**.
 - Face height or slightly above, tilted down less than 15°.
 - Faces at least 80 px wide (check on the Live camera page).
+- The detector looks at the picture shrunk to `det_size` (640 px by default). A 1080p camera is shrunk three times, so an 80 px face becomes 27 px for the detector; if faces are small or far away, set `det_size: 960` in `config.yaml` (slower, more accurate).
 
 **Light** should come from in front of people. **Never** point the camera at a glass door or window (backlight).
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import dataclasses
 import datetime as dt
+import string
 from dataclasses import dataclass, field
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -15,6 +16,22 @@ def parse_clock(value) -> dt.time:
     if isinstance(value, int):
         return dt.time(value // 60, value % 60)
     return dt.datetime.strptime(str(value).strip(), "%H:%M").time()
+
+
+LATE_MESSAGE_FIELDS = ("mention", "name", "time", "minutes")
+
+
+def check_late_message_item(item: str) -> None:
+    """Allow only the documented placeholders: a format string can otherwise reach into objects
+    ({mention.__class__}) or crash on an unknown attribute."""
+    error = ValueError("the late message line may only use {mention}, {name}, {time} and {minutes}")
+    try:
+        fields = [name for _, name, _, _ in string.Formatter().parse(item) if name is not None]
+        item.format(mention="@A", name="A", time="10:15", minutes=15)
+    except (KeyError, IndexError, ValueError, AttributeError, TypeError):
+        raise error from None
+    if any(name not in LATE_MESSAGE_FIELDS for name in fields):
+        raise error
 
 
 @dataclass
@@ -150,19 +167,19 @@ class Config:
             raise ValueError("votes_required, unknown_min_frames and min_face_px must be at least 1")
         if not 0 < self.camera.process_fps <= 30:
             raise ValueError("process_fps must be between 0 and 30")
+        if r.det_size < 160 or (r.backend == "insightface" and r.det_size % 32):
+            raise ValueError("det_size must be at least 160 and, for insightface, a multiple of 32 (e.g. 640, 960)")
         if self.retention_days < 1:
             raise ValueError("retention_days must be at least 1")
         lm = self.late_message
         if str(lm.send_at).strip():
             lm.send_at = parse_clock(lm.send_at).strftime("%H:%M")
-            if parse_clock(lm.send_at) < late:
-                raise ValueError("the late message must be sent at or after the late time")
+            # At the late time itself nobody has come late yet, so the message would be empty.
+            if parse_clock(lm.send_at) <= late:
+                raise ValueError("the late message must be sent after the late time")
         else:
             lm.send_at = ""
-        try:
-            lm.item.format(mention="", name="", time="", minutes=0)
-        except (KeyError, IndexError, ValueError):
-            raise ValueError("the late message line may only use {mention}, {name}, {time} and {minutes}") from None
+        check_late_message_item(lm.item)
         if self.leave_api.refresh_minutes < 1:
             raise ValueError("leave_api.refresh_minutes must be at least 1")
         if self.google_chat.unknown_batch_minutes < 0:

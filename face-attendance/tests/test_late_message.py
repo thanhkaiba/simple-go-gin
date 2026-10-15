@@ -112,3 +112,77 @@ def test_chat_ids_from_csv_and_employee_page(core):
     assert "Morning, coming late today: @Bob (10:15)" in page
     page = c.post(f"/day/{DAY}/late-message", follow_redirects=True).get_data(as_text=True)
     assert "Late message posted" in page and urls[-1] == "Morning, coming late today: <users/456> (10:15)"
+
+
+def test_send_time_must_be_after_the_late_time(tmp_path):
+    p = tmp_path / "c.yaml"
+    p.write_text('late_message:\n  send_at: "10:00"\n')  # equal to late_after: nobody is late yet at that moment
+    with pytest.raises(ValueError, match="after the late time"):
+        config.load(p)
+    p.write_text('late_message:\n  send_at: "10:01"\n')
+    assert config.load(p).late_message.send_at == "10:01"
+
+
+def test_placeholders_cannot_reach_into_objects(tmp_path):
+    for item in ("{mention.__class__}", "{mention.foo}", "{}", "{0}", "{name[0]}", "{mention"):
+        with pytest.raises(ValueError, match="mention"):
+            config.check_late_message_item(item)
+    config.check_late_message_item("{mention} ({time}, {minutes:02d} min, {name})")
+
+
+def test_message_about_another_day_starts_with_its_date(core):
+    app, clock, sent = core
+    clock.t = at(10, 40)
+    late(app, "B", 10, 15)
+    clock.t = at(9, 0, day=D)  # the next day
+    assert app.service.late_text(DAY) == "Wednesday 14 Oct: Morning, coming late today: @Bob (10:15)"
+    assert app.service.send_late_message(DAY, user="hr")
+    assert sent[-1].startswith("Wednesday 14 Oct: ")
+
+
+def test_nobody_late_is_remembered_but_not_shown_as_sent(core):
+    app, clock, sent = core
+    late(app, "A", 9, 0)
+    run_until(app.service, clock, at(11, 30))
+    assert app.store.notice_time(DAY, "late_message") is None
+    assert app.store.notice_time(DAY, "late_message_skipped") is not None
+    flask_app = create_app(app)
+    flask_app.testing = True
+    page = flask_app.test_client().get("/").get_data(as_text=True)
+    assert "Nobody was late at 11:00, so nothing was sent" in page and "Sent at" not in page
+    # The admin later finds someone the camera missed and can still send the message by hand.
+    app.service.set_arrival(DAY, "B", dt.time(10, 20))
+    assert app.service.send_late_message(DAY, user="hr") and sent[-1].startswith("Morning")
+    run_until(app.service, clock, at(12, 0))
+    assert len([m for m in sent if m.startswith("Morning")]) == 1
+
+
+def test_automatic_send_does_not_repeat_a_manual_one(core):
+    app, clock, sent = core
+    clock.t = at(10, 30)
+    late(app, "B", 10, 20)
+    assert app.service.send_late_message(DAY, user="hr")
+    run_until(app.service, clock, at(11, 30))
+    assert len([m for m in sent if m.startswith("Morning")]) == 1
+    assert app.store.mark_notice(DAY, "late_message", clock.t) is False  # already marked
+
+
+def test_chat_ids_are_normalised_and_checked(core):
+    app, _, _ = core
+    app.store.update_employee("A", "Alice", True, " users/123 ")
+    assert app.store.employee("A").chat_user == "123"
+    app.store.update_employee("A", "Alice", True, "<users/456>")
+    assert app.store.employee("A").chat_user == "456"
+    with pytest.raises(ValueError, match="number"):
+        app.store.update_employee("A", "Alice", True, "alice@example.com")
+    assert app.store.employee("A").chat_user == "456"  # nothing changed
+    with pytest.raises(ValueError, match="row B"):
+        app.store.import_employees("id,name,chat_user\nB,Bob,bob\n")
+    app.store.import_employees("id,name,chat_user\nB,Bob,users/789\n")
+    assert app.store.employee("B").chat_user == "789"
+
+    flask_app = create_app(app)
+    flask_app.testing = True
+    page = flask_app.test_client().post("/employees/C", data={"name": "Carol", "active": "on", "chat_user": "x"},
+                                        follow_redirects=True).get_data(as_text=True)
+    assert "is a number" in page

@@ -103,3 +103,57 @@ def test_recommend_takes_middle_of_safe_range_not_its_edge():
     best = recommend(sweep(samples, thresholds=[0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8], margins=[0.0]))
     # 0.2 and 0.3 accept the stranger; 0.4-0.8 are all safe, so take the middle.
     assert best.threshold == 0.6 and best.correct == 1 and best.employees == 1
+
+
+def test_background_delivery_never_blocks_the_sender(tmp_path):
+    import threading
+    import time
+
+    store = Store(tmp_path / "db")
+    release, delivered = threading.Event(), []
+
+    def slow_post(url, payload):
+        release.wait(5)  # a webhook that hangs
+        delivered.append(payload["text"])
+
+    chat = GoogleChat("https://example/hook", store, post=slow_post)
+    chat.start_background()
+    t0 = time.monotonic()
+    chat.send("hello", None, NOW)
+    chat.kick(NOW)
+    assert time.monotonic() - t0 < 1 and delivered == []  # queued, the caller is not held up
+    release.set()
+    for _ in range(100):
+        if delivered:
+            break
+        time.sleep(0.02)
+    assert delivered == ["hello"] and store.outbox() == []
+
+
+def test_degenerate_landmarks_skip_the_face_instead_of_crashing():
+    from attendance.recognizer import FaceRecognizer, align
+
+    class Backend:
+        def detect(self, frame, threshold=0.5):
+            return [(np.array([10, 10, 110, 110]), 0.9, np.zeros((5, 2), np.float32)),
+                    (np.array([10, 10, 110, 110]), 0.9, np.array([[30, 40], [70, 40], [50, 60], [35, 80], [65, 80]], np.float32))]
+
+        def embed(self, frame, landmarks):
+            align(frame, landmarks)
+            return np.ones(8, np.float32)
+
+    rec = FaceRecognizer.__new__(FaceRecognizer)
+    rec.cfg, rec.backend = config.RecognitionConfig(), Backend()
+    frame = np.full((200, 200, 3), 128, np.uint8)
+    with pytest.raises(ValueError):
+        align(frame, np.zeros((5, 2), np.float32))
+    assert len(rec.analyze(frame)) == 1
+
+
+def test_config_checks_detector_size(tmp_path):
+    p = tmp_path / "c.yaml"
+    p.write_text("recognition:\n  det_size: 500\n")
+    with pytest.raises(ValueError, match="multiple of 32"):
+        config.load(p)
+    p.write_text("recognition:\n  backend: opencv\n  det_size: 500\n")
+    assert config.load(p).recognition.det_size == 500

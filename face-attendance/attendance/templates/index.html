@@ -98,8 +98,11 @@
   {% endif %}
   <p class="hint" style="margin:0">
     {% if late_msg.sent %}Sent at {{ late_msg.sent.strftime('%H:%M') }}.
+    {% elif late_msg.skipped %}Nobody was late at {{ late_msg.skipped.strftime('%H:%M') }}, so nothing was sent.
     {% elif late_msg.auto %}Sent automatically at {{ late_msg.send_at }}. Fix wrong arrivals above before then.
     {% else %}Sent only when you click the button.{% endif %}
+    {% if rep.day != today %}<br>A message about another day starts with its date.{% endif %}
+
     {% if late_msg.missing_chat %}<br>⚠️ No Google Chat ID for {{ late_msg.missing_chat|join(', ') }}: shown as plain text, without a notification.{% endif %}
   </p>
 </div>

@@ -21,6 +21,10 @@ from .tracker import Decision, FaceTracker, Observation
 
 log = logging.getLogger(__name__)
 
+# A camera that sends nothing for this long is reopened: a dropped RTSP connection can leave
+# the decoder waiting forever without ever reporting an error.
+CAMERA_RESTART_S = 60.0
+
 
 class App:
     """Everything the camera loop, the web page and the command line share."""
@@ -129,6 +133,7 @@ def run(cfg: Config) -> None:
 
     app = App(cfg)
     service, live = app.service, app.live
+    app.chat.start_background()  # a slow webhook must not hold up face recognition
     if cfg.web.enabled:
         from .web import create_app
 
@@ -178,9 +183,11 @@ def run(cfg: Config) -> None:
         camera_ok = True
 
         if (in_window or live.previewing) and recognizer is not None and cfg.camera.url:
-            if camera is None or camera.source != cfg.camera.url:
+            if camera is None or camera.source != cfg.camera.url or camera.silent_for() > CAMERA_RESTART_S:
                 if camera is not None:
-                    camera.stop()
+                    if camera.source == cfg.camera.url:
+                        log.warning("No frames for %.0fs, reopening the camera", camera.silent_for())
+                    camera.stop(wait_s=1.0)  # do not let a hung reader hold up the loop
                 camera = Camera(cfg.camera.url).start()
                 live.camera_state = "connecting"
             frame, frame_time = camera.latest()

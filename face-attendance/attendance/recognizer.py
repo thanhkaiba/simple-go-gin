@@ -83,6 +83,8 @@ def head_pose(landmarks: np.ndarray) -> tuple[float, float]:
 
 def align(frame: np.ndarray, landmarks: np.ndarray) -> np.ndarray:
     matrix, _ = cv2.estimateAffinePartial2D(landmarks.astype(np.float32), ARCFACE_LANDMARKS, method=cv2.LMEDS)
+    if matrix is None:  # degenerate landmarks (e.g. all on one point): no similarity transform exists
+        raise ValueError("cannot align face: degenerate landmarks")
     return cv2.warpAffine(frame, matrix, (112, 112), borderValue=0)
 
 
@@ -218,7 +220,11 @@ class FaceRecognizer:
                   and yaw <= c.max_yaw and abs(pitch) <= c.max_pitch)
             quality = (det * min(1.0, size / 112) * min(1.0, sharp / 150)
                        * math.cos(math.radians(min(yaw, 89))) * math.cos(math.radians(min(abs(pitch), 89))))
-            emb = self.backend.embed(frame, landmarks).astype(np.float32)
+            try:
+                emb = self.backend.embed(frame, landmarks).astype(np.float32)
+            except ValueError:  # unusable landmarks: skip this face rather than stop the camera loop
+                continue
+
             emb /= max(float(np.linalg.norm(emb)), 1e-12)
             out.append(DetectedFace(bbox, emb, det, size, sharp, yaw, pitch, ok, quality))
         return out

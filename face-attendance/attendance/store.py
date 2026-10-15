@@ -158,6 +158,17 @@ class Leave:
 CHAT_COLUMNS = ("chat_user", "chat_id", "google_chat_id", "chat")
 
 
+def normalize_chat_user(value: str | None) -> str:
+    """A Google Chat user ID is a number. Accept it pasted as "users/123…" or "<users/123…>" too;
+    anything else would silently turn into a mention that does not work."""
+    value = (value or "").strip().strip("<>").strip()
+    if value.lower().startswith("users/"):
+        value = value[len("users/"):]
+    if value and not value.isdigit():
+        raise ValueError(f"the Google Chat user ID is a number (e.g. 112233445566778899000), not {value!r}")
+    return value
+
+
 def _vec(blob) -> np.ndarray | None:
     return None if blob is None else np.frombuffer(blob, dtype=np.float32)
 
@@ -208,7 +219,11 @@ class Store:
         for r in reader:
             r = {k.strip().lower(): (v or "").strip() for k, v in r.items() if k}
             if r.get("id") and r.get("name"):
-                rows.append((r["id"], r["name"], next((r[c] for c in CHAT_COLUMNS if r.get(c)), "")))
+                try:
+                    chat_user = normalize_chat_user(next((r[c] for c in CHAT_COLUMNS if r.get(c)), ""))
+                except ValueError as exc:
+                    raise ValueError(f"row {r['id']}: {exc}") from None
+                rows.append((r["id"], r["name"], chat_user))
         with self._lock, self._db:
             self._db.executemany(
                 "INSERT INTO employees (id, name, active, chat_user) VALUES (?, ?, 1, ?) "
@@ -229,9 +244,10 @@ class Store:
     def update_employee(self, employee_id: str, name: str, active: bool, chat_user: str | None = None) -> None:
         if not name.strip():
             raise ValueError("name is required")
+        chat_user = normalize_chat_user(chat_user) if chat_user is not None else None  # validate before writing
         self._exec("UPDATE employees SET name = ?, active = ? WHERE id = ?", (name.strip(), int(active), employee_id))
         if chat_user is not None:
-            self._exec("UPDATE employees SET chat_user = ? WHERE id = ?", (chat_user.strip(), employee_id))
+            self._exec("UPDATE employees SET chat_user = ? WHERE id = ?", (chat_user, employee_id))
 
     def delete_employee(self, employee_id: str) -> list[str]:
         """Remove the employee and their face data; returns reference image paths to delete.
@@ -527,9 +543,11 @@ class Store:
         rows = self._all("SELECT sent_at FROM notices WHERE day = ? AND kind = ?", (day.isoformat(), kind))
         return dt.datetime.fromisoformat(rows[0]["sent_at"]) if rows else None
 
-    def mark_notice(self, day: dt.date, kind: str, now: dt.datetime) -> None:
-        self._exec("INSERT OR IGNORE INTO notices (day, kind, sent_at) VALUES (?, ?, ?)",
-                   (day.isoformat(), kind, now.isoformat()))
+    def mark_notice(self, day: dt.date, kind: str, now: dt.datetime) -> bool:
+        """Returns False when the notice was already marked (by another thread, say)."""
+        cur = self._exec("INSERT OR IGNORE INTO notices (day, kind, sent_at) VALUES (?, ?, ?)",
+                         (day.isoformat(), kind, now.isoformat()))
+        return cur.rowcount == 1
 
     def add_outage(self, day: dt.date, start: dt.datetime, end: dt.datetime) -> None:
         self._exec("INSERT INTO outages (day, start, end) VALUES (?, ?, ?)", (day.isoformat(), start.isoformat(), end.isoformat()))

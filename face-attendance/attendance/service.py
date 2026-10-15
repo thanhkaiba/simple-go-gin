@@ -199,7 +199,8 @@ class AttendanceService:
 
     def late_text(self, day: dt.date, preview: bool = False) -> str | None:
         """'Morning, coming late today: @A (10:15), and @B (10:32)'. With preview=True names are
-        shown as @Name instead of Google Chat mention codes."""
+        shown as @Name instead of Google Chat mention codes. A message about another day than
+        today starts with that day, so "today" in the wording cannot mislead."""
         people = self.late_people(day)
         if not people:
             return None
@@ -207,13 +208,20 @@ class AttendanceService:
         items = [lm.item.format(mention=f"@{a.name}" if preview else self.mention(a.employee_id), name=a.name,
                                 time=a.time, minutes=minutes_late(a, w)) for a in people]
         joined = items[0] if len(items) == 1 else ", ".join(items[:-1]) + ", and " + items[-1]
-        return f"{lm.intro} {joined}"
+        prefix = "" if day == self.now().date() else f"{day:%A %d %b}: "
+        return f"{prefix}{lm.intro} {joined}"
 
-    def send_late_message(self, day: dt.date, user: str = "system") -> bool:
-        """Post the day's late message (as its own message, not in the day's thread)."""
+    def send_late_message(self, day: dt.date, user: str = "system", auto: bool = False) -> bool:
+        """Post the day's late message (as its own message, not in the day's thread).
+
+        Marks "late_message" only when something was sent, and "late_message_skipped" when nobody
+        was late, so the page can tell the two apart. An automatic send gives up when the message
+        was marked meanwhile (the admin's "Send now" and the scheduler racing)."""
         text = self.late_text(day)
-        self.store.mark_notice(day, "late_message", self.now())
         if text is None:
+            self.store.mark_notice(day, "late_message_skipped", self.now())
+            return False
+        if not self.store.mark_notice(day, "late_message", self.now()) and auto:
             return False
         self.chat.send(text, None, self.now())
         self.store.log(self.now(), user, "send late message", ", ".join(a.name for a in self.late_people(day)))
@@ -523,8 +531,10 @@ class AttendanceService:
 
             lm = self.cfg.late_message
             send_at = dt.datetime.combine(day, parse_clock(lm.send_at), tzinfo=self.tz) if lm.send_at else w.end
-            if lm.enabled and lm.auto_send and not self.store.notice_sent(day, "late_message") and now >= send_at:
-                self.send_late_message(day)
+            if (lm.enabled and lm.auto_send and now >= send_at
+                    and not self.store.notice_sent(day, "late_message")
+                    and not self.store.notice_sent(day, "late_message_skipped")):
+                self.send_late_message(day, auto=True)
 
             if now >= w.end and not self.store.notice_sent(day, "summary"):
                 self.store.mark_unknowns_notified([u.id for u in self.store.unnotified_unknowns(day)])
@@ -536,7 +546,7 @@ class AttendanceService:
             self.store.put("cleanup_day", day.isoformat())
 
         if self._last_flush is None or now - self._last_flush >= FLUSH_EVERY:
-            self.chat.flush(now)
+            self.chat.kick(now)
             self._last_flush = now
 
     def cleanup(self, today: dt.date) -> int:

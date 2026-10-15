@@ -29,7 +29,7 @@ recognition:
   backend: insightface
   detector_model: ""      # empty = default file in models/ (python -m attendance download-models)
   recognizer_model: ""
-  det_size: 640
+  det_size: 640           # detector input (multiple of 32). A 1080p picture is shrunk 3x at 640; use 960 if faces look small
   use_gpu: false
   # A frame only votes if the face is big, sharp and roughly frontal enough:
   min_face_px: 60
@@ -55,7 +55,8 @@ late_message:             # one message a day listing who came late
   intro: "Morning, coming late today:"
   item: "{mention} ({time})"   # {mention}, {name}, {time}, {minutes}
   auto_send: true
-  send_at: ""             # empty = when the camera stops (window_end); or a time at/after late_after
+  send_at: ""             # empty = when the camera stops (window_end); or a time after late_after
+
 
 leave_api:
   # HR system endpoint for holidays, make-up work days and employee leave (format: see README).

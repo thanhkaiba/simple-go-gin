@@ -66,11 +66,13 @@
       <div class="form-row">
         <label class="field grow">Message starts with<input name="late_message.intro" value="{{ s.late_message.intro }}"></label>
         <label class="field grow">Each person<input name="late_message.item" value="{{ s.late_message.item }}">
-          <span class="hint">You can use {mention}, {name}, {time} and {minutes} (minutes late)</span></label>
+          <span class="hint">You can use {mention}, {name}, {time} and {minutes} (minutes late). This message always
+            mentions people where {mention} is used, whatever the Google Chat setting above says.</span></label>
+
       </div>
       <div class="form-row" style="margin-top:12px">
         {{ check('late_message', 'auto_send', 'Send automatically at') }}
-        {{ field('late_message', 'send_at', '', 'Empty = when the camera stops. Must be at or after the late time.', type='time') }}
+        {{ field('late_message', 'send_at', '', 'Empty = when the camera stops. Must be after the late time.', type='time') }}
       </div>
     </div>
 

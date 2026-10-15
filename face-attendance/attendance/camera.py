@@ -35,12 +35,19 @@ class Camera:
         self._thread.start()
         return self
 
-    def stop(self) -> None:
+    def stop(self, wait_s: float = 10.0) -> None:
+        """Ask the reader to stop. A reader stuck in a hung decoder call cannot be interrupted;
+        it is left behind (daemon thread) and ignored once `wait_s` is over."""
         self._stop.set()
-        self._thread.join(timeout=10)
+        self._thread.join(timeout=wait_s)
 
     def started_for(self) -> float:
         return time.time() - self._started
+
+    def silent_for(self) -> float:
+        """Seconds since the last frame (or since start, if there never was one)."""
+        with self._lock:
+            return time.time() - (self._frame_time or self._started)
 
     def latest(self):
         """Return (frame, unix_time) of the newest frame, or (None, 0) if the stream is down."""
