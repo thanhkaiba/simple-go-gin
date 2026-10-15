@@ -299,3 +299,79 @@ def test_learning_skips_faces_nearly_identical_to_a_kept_one(core):
     other = person_vector(1) + 0.5 * person_vector(50)
     assert lib.learn("A", other / np.linalg.norm(other), None, model)
     assert app.gallery.counts()["A"] == 2
+
+
+def test_evaluation_from_the_cameras_own_snapshots(core, capsys):
+    from conftest import face_image, person_vector
+
+    from attendance.evaluate import data_samples, evaluate_data
+    from attendance.faces import encode_jpeg
+    from attendance.recognizer import DetectedFace
+
+    app, clock, _ = core
+    yesterday = DAY - dt.timedelta(days=1)
+
+    def blend(a, b, w=0.6):
+        v = person_vector(a) + w * person_vector(b)
+        return v / np.linalg.norm(v)
+
+    faces = {11: blend(1, 40), 12: blend(1, 41), 13: person_vector(30), 14: person_vector(31), 15: blend(2, 42)}
+
+    class Stub:
+        def largest_face(self, image, mirror=False):
+            emb = faces.get(int(round(float(image.mean()) / 10)))
+            return None if emb is None else DetectedFace((0, 0, 1, 1), emb, 0.9, 100, 100, 0, 0, True, 0.8)
+
+    def snap(k):
+        rel = f"crops/{yesterday}/{k}.jpg"
+        (app.data_dir / rel).parent.mkdir(parents=True, exist_ok=True)
+        (app.data_dir / rel).write_bytes(encode_jpeg(face_image(k)))
+        return rel
+
+    t = lambda h, m: at(h, m, day=yesterday)
+    app.store.record_checkin(yesterday, "A", t(9, 0), "camera", 0.8, snap(11))
+    app.store.record_checkin(yesterday, "B", t(9, 5), "camera", 0.5, snap(12))   # really Alice
+    moved = app.store.sightings(yesterday, "B")[0]
+    app.service.move_sighting(moved.id, "A")
+    app.store.record_checkin(yesterday, "C", t(9, 9), "camera", 0.5, snap(13))   # a visitor
+    app.service.reject_sighting(app.store.sightings(yesterday, "C")[0].id)
+    uid = app.store.add_unknown(yesterday, t(9, 30), snap(14), app.cfg.recognition.model_id(), faces[14], None, None)
+    app.store.ignore_group(uid, yesterday)
+    app.store.record_checkin(DAY, "B", at(8, 0), "camera", 0.9, snap(15))  # today: not reviewed yet, left out
+    # A reference learned from the 9:00 snapshot itself must not be used to test that snapshot.
+    app.store.add_embedding(app.cfg.recognition.model_id(), "A", faces[11], "admin", clock())
+    app.library.reload()
+
+    samples, counts = data_samples(app, Stub(), 30, center=False)
+    assert counts == {"camera": 1, "corrected": 1, "rejected": 1, "ignored": 1}
+    assert sorted((s.truth or "-") for s in samples) == ["-", "-", "A", "A"]
+    first = next(s for s in samples if s.visit.endswith("/11.jpg"))
+    assert first.top == "A" and first.top_score < 0.99
+
+    app._recognizer = Stub()
+    evaluate_data(app, 30)
+    out = capsys.readouterr().out
+    assert "moved to the right person by an admin" in out and "Recommended: accept_score" in out
+
+
+def test_accuracy_report_counts_mixups_misses_and_who_needs_photos(env):
+    from attendance.accuracy import accuracy_report
+
+    service, store, clock, sent = env
+    run_until(service, clock, at(10, 30))
+    service.on_identified("A", at(9, 0), 0.8, None)            # right
+    service.on_identified("B", at(9, 5), 0.5, None)            # really Carol
+    service.move_sighting(store.sightings(DAY, "B")[0].id, "C")
+    service.on_identified("A", at(9, 20), 0.5, None)           # a visitor
+    service.reject_sighting(store.sightings(DAY, "A")[1].id)
+    service.set_arrival(DAY, "B", dt.time(9, 40))              # Bob was missed by the camera
+    store.add_unknown(DAY, at(9, 41), None, None, None, None, None)
+
+    acc = accuracy_report(store, service.gallery, DAY, DAY)
+    [d] = acc.days
+    assert (d.identified, d.wrong, d.arrivals, d.missed, d.unknown_faces) == (3, 2, 3, 2, 1)
+    assert sorted(acc.confusions, key=str) == sorted([("B", "C", 1), ("A", None, 1)], key=str)
+    by_id = {p.employee_id: p for p in acc.people}
+    assert by_id["C"].missed == 1 and by_id["C"].taken_as_other == 1  # Carol only came from a correction
+    assert by_id["B"].missed == 1 and by_id["B"].others_taken_as_them == 1
+    assert "add more photos" in by_id["B"].advice

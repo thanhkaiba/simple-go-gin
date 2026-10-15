@@ -101,6 +101,9 @@
             check it on the <a href="{{ url_for('live_page') }}">Live camera</a> page</span></label>
         {{ field('camera', 'process_fps', 'Frames per second', 'Lower if the computer is slow', type='number', step='0.5') }}
       </div>
+      <div class="form-row" style="margin-top:12px">
+        {{ field('camera', 'area', 'Detection area', 'left,top,right,bottom as fractions; empty = whole picture. Easier: draw it on the Live camera page', cls='grow') }}
+      </div>
       <div style="margin-top:12px">{{ check('camera', 'enhance_low_light', 'Brighten dark frames automatically') }}</div>
       <h3 style="margin-top:20px">Groups of people</h3>
       <div class="form-row">

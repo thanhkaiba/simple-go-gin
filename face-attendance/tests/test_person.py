@@ -179,3 +179,58 @@ def test_face_mode_ignores_person_detector(core):
     proc = FrameProcessor(app)
     proc.process(face_image(1), step(0))
     assert proc._detector is None and proc.person_error is None
+
+
+# detection area ------------------------------------------------------------------------------
+
+def test_area_setting_is_parsed_and_validated():
+    import pytest
+
+    from attendance.config import CameraConfig, Config
+
+    c = CameraConfig(area="0.25,0.1,0.75,1")
+    assert c.area_box((720, 1280)) == (320, 72, 960, 720)
+    assert CameraConfig().area_box((720, 1280)) is None
+    for bad in ("0.5,0.5,0.4,1", "0,0,0.05,1", "a,b,c,d", "0,0,1"):
+        cfg = Config()
+        cfg.camera.area = bad
+        with pytest.raises(ValueError):
+            cfg.validate()
+    cfg = Config()
+    cfg.camera.area = " 0.2500, 0, 1.0, 1 "
+    cfg.validate()
+    assert cfg.camera.area == "0.25,0,1,1"
+
+
+class CropRecognizer(RegionRecognizer):
+    def analyze(self, frame, regions=(), region_size=320, full_frame=True):
+        from conftest import person_vector
+
+        self.calls.append((frame.shape, list(regions), full_frame))
+        return [DetectedFace((10.0, 20.0, 70.0, 80.0), person_vector(1), 0.9, 60.0, 100.0, 0.0, 0.0, True, 0.8,
+                             np.array([[30.0, 40.0]] * 5))]
+
+
+def test_only_the_area_is_analysed_and_boxes_come_back_in_frame_pixels(core):
+    app, clock, _ = core
+    app.cfg.camera.area = "0.5,0.25,1,1"
+    app._recognizer = CropRecognizer()
+    proc = FrameProcessor(app)
+    frame = np.zeros((400, 800, 3), np.uint8)
+    _, matched, _ = proc.process(frame, step(0))
+    assert app._recognizer.calls[0][0] == (300, 400, 3)  # bottom-right part only
+    face = matched[0][0]
+    assert face.bbox == (410.0, 120.0, 470.0, 180.0)
+    assert face.landmarks[0].tolist() == [430.0, 140.0]
+
+
+def test_area_with_person_tracking_shifts_people_too(core):
+    app, clock, _ = core
+    app.cfg.camera.area = "0.5,0,1,1"
+    app.cfg.tracking.mode = "person"
+    app._recognizer = CropRecognizer()
+    proc = FrameProcessor(app)
+    proc._detector = FakeDetector()
+    _, _, people = proc.process(np.zeros((400, 800, 3), np.uint8), step(0))
+    assert people[0].box.tolist() == [500, 100, 600, 400]
+    assert proc._people.tracks[0].box.tolist() == [100, 100, 200, 400]  # the tracker keeps area pixels

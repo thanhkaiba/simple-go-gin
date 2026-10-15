@@ -402,6 +402,21 @@ def create_app(core: "App") -> Flask:
         return render_template("report.html", rep=service.period_report(start, end), start=start, end=end,
                                ranges=ranges)
 
+    @app.get("/accuracy")
+    def accuracy():
+        from .accuracy import accuracy_report
+
+        today = service.now().date()
+        start = _date(request.args.get("start"), today - dt.timedelta(days=29))
+        end = _date(request.args.get("end"), today)
+        if end < start:
+            start, end = end, start
+        ranges = [("Last 7 days", today - dt.timedelta(days=6), today),
+                  ("Last 30 days", today - dt.timedelta(days=29), today),
+                  ("Last 90 days", today - dt.timedelta(days=89), today)]
+        return render_template("accuracy.html", acc=accuracy_report(store, core.gallery, start, end),
+                               names=store.employees(), ranges=ranges)
+
     def _csv(name: str, header: list[str], rows) -> Response:
         out = io.StringIO()
         writer = csv.writer(out)
@@ -461,6 +476,16 @@ def create_app(core: "App") -> Flask:
                        last_identified=live.last_identified, previewing=live.previewing,
                        in_window=service.in_window(service.now()),
                        frame_age=round(time.time() - frame_time, 1) if frame_time else None)
+
+    @app.post("/live/area")
+    def set_area():
+        area = request.form.get("area", "").strip()
+        try:
+            settings.save(cfg, store, {"camera": {"area": area}})
+        except ValueError as exc:
+            return failed(f"Not saved: {exc}", "live_page")
+        store.log(service.now(), user(), "change settings", f"camera.area = {cfg.camera.area or 'whole picture'}")
+        return done("Detection area saved." if cfg.camera.area else "The whole picture is analysed again.", "live_page")
 
     @app.post("/live/preview")
     def preview():

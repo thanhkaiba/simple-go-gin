@@ -44,6 +44,9 @@ def main() -> None:
     p.add_argument("--test", default=None)
     p.add_argument("--backends", nargs="+", choices=["insightface", "opencv"], default=None,
                    help="default: the backend in config.yaml")
+    p.add_argument("--from-data", action="store_true",
+                   help="test on the camera's own snapshots, labelled by admin corrections, instead of folders")
+    p.add_argument("--days", type=int, default=30, help="with --from-data: how many days back (default 30)")
     p = sub.add_parser("benchmark", help="run a video through both tracking modes; compare speed and results")
     p.add_argument("video")
     p.add_argument("--modes", nargs="+", choices=["face", "person"], default=["face", "person"])
@@ -71,10 +74,16 @@ def main() -> None:
 
         enroll(cfg, cfg.path(args.faces))
     elif args.command == "evaluate":
-        from .evaluate import evaluate
+        if args.from_data:
+            from .evaluate import evaluate_data
+            from .pipeline import App
 
-        evaluate(cfg, cfg.path(args.gallery), cfg.path(args.test) if args.test else None,
-                 args.backends or [cfg.recognition.backend])
+            evaluate_data(App(cfg), args.days)
+        else:
+            from .evaluate import evaluate
+
+            evaluate(cfg, cfg.path(args.gallery), cfg.path(args.test) if args.test else None,
+                     args.backends or [cfg.recognition.backend])
     elif args.command == "benchmark":
         from .benchmark import benchmark
         from .pipeline import App

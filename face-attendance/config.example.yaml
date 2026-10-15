@@ -19,6 +19,7 @@ camera:
   # Ezviz: rtsp://admin:<6-letter verification code on the camera label>@<camera IP>:554/H.264
   url: "rtsp://admin:ABCDEF@192.168.1.64:554/H.264"
   process_fps: 5          # frames analysed per second; lower it if the CPU cannot keep up
+  area: ""                # part of the picture to analyse, "left,top,right,bottom" fractions; set it on the Live camera page
   enhance_low_light: true
 
 recognition:

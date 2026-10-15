@@ -218,3 +218,27 @@ def test_single_sightings_can_be_fixed_from_the_page(core):
     resp = c.post("/sighting/999/reject", follow_redirects=True)
     assert "no longer exists" in resp.get_data(as_text=True)
     assert "move sighting" in c.get("/audit").get_data(as_text=True)
+
+
+def test_detection_area_from_the_live_page(core):
+    app, _, _ = core
+    c = client(app)
+    assert "Detection area" in c.get("/live").get_data(as_text=True)
+    c.post("/live/area", data={"area": "0.200,0.100,0.900,1.000"})
+    assert app.cfg.camera.area == "0.2,0.1,0.9,1"
+    resp = c.post("/live/area", data={"area": "0.5,0.5,0.52,0.52"}, follow_redirects=True)
+    assert "too small" in resp.get_data(as_text=True) and app.cfg.camera.area == "0.2,0.1,0.9,1"
+    c.post("/live/area", data={"area": ""})
+    assert app.cfg.camera.area == ""
+    assert "camera.area" in c.get("/audit").get_data(as_text=True)
+
+
+def test_accuracy_page(core):
+    app, clock, _ = core
+    c = client(app)
+    clock.t = at(10, 30)
+    app.service.on_identified("A", at(9, 5), 0.6, None)
+    app.service.move_sighting(app.store.sightings(DAY, "A")[0].id, "B")
+    page = c.get(f"/accuracy?start={DAY}&end={DAY}").get_data(as_text=True)
+    assert "Recognition accuracy" in page and "Mix-ups" in page and "100.0%" in page
+    assert "Alice" in page and "Bob" in page

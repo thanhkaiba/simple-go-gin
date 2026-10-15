@@ -52,7 +52,8 @@ CREATE TABLE IF NOT EXISTS sightings (
     source TEXT NOT NULL,  -- camera, admin (face confirmed on the review page), manual (time typed in)
     score REAL,
     image TEXT,
-    status TEXT NOT NULL DEFAULT 'ok'  -- ok or rejected
+    status TEXT NOT NULL DEFAULT 'ok',  -- ok or rejected
+    camera_id TEXT  -- who the camera said it was (kept when an admin moves the sighting)
 );
 CREATE INDEX IF NOT EXISTS sightings_day ON sightings(day, employee_id);
 CREATE TABLE IF NOT EXISTS unknowns (
@@ -145,6 +146,7 @@ class Sighting:
     score: float | None
     image: str | None
     status: str
+    camera_id: str | None = None
 
 
 @dataclass
@@ -217,16 +219,19 @@ class Store:
     def _migrate(self) -> None:
         """Add columns introduced after a database was created."""
         added = {"embeddings": [("image", "TEXT")], "unknowns": [("group_id", "INTEGER"), ("ignored_day", "TEXT")],
-                 "employees": [("chat_user", "TEXT NOT NULL DEFAULT ''")]}
+                 "employees": [("chat_user", "TEXT NOT NULL DEFAULT ''")], "sightings": [("camera_id", "TEXT")]}
         for table, columns in added.items():
             have = {r["name"] for r in self._db.execute(f"PRAGMA table_info({table})")}
             for name, kind in columns:
                 if name not in have:
                     self._db.execute(f"ALTER TABLE {table} ADD COLUMN {name} {kind}")
+                    if (table, name) == ("sightings", "camera_id"):
+                        self._db.execute("UPDATE sightings SET camera_id = employee_id WHERE source = 'camera'")
         # Databases from before sightings existed: each arrival becomes its first sighting.
         if not self._db.execute("SELECT 1 FROM sightings LIMIT 1").fetchone():
-            self._db.execute("INSERT INTO sightings (day, employee_id, ts, source, score, image) "
-                             "SELECT day, employee_id, first_seen, source, score, image FROM checkins")
+            self._db.execute("INSERT INTO sightings (day, employee_id, ts, source, score, image, camera_id) "
+                             "SELECT day, employee_id, first_seen, source, score, image, "
+                             "CASE WHEN source = 'camera' THEN employee_id END FROM checkins")
         self._db.commit()
 
     def _exec(self, sql: str, params=()) -> sqlite3.Cursor:
@@ -357,7 +362,7 @@ class Store:
 
     def _sighting(self, r) -> Sighting:
         return Sighting(r["id"], dt.date.fromisoformat(r["day"]), r["employee_id"], dt.datetime.fromisoformat(r["ts"]),
-                        r["source"], r["score"], r["image"], r["status"])
+                        r["source"], r["score"], r["image"], r["status"], r["camera_id"])
 
     def _recompute(self, day: dt.date, employee_id: str) -> None:
         """The arrival is the earliest valid sighting, unless an admin typed a time in: the latest
@@ -387,8 +392,9 @@ class Store:
         earlier) or "unchanged"."""
         with self._lock, self._db:
             before = self._arrival_ts(day, employee_id)
-            self._db.execute("INSERT INTO sightings (day, employee_id, ts, source, score, image) VALUES (?, ?, ?, ?, ?, ?)",
-                             (day.isoformat(), employee_id, ts.isoformat(), source, score, image))
+            self._db.execute("INSERT INTO sightings (day, employee_id, ts, source, score, image, camera_id) "
+                             "VALUES (?, ?, ?, ?, ?, ?, ?)", (day.isoformat(), employee_id, ts.isoformat(), source, score,
+                                                              image, employee_id if source == "camera" else None))
             self._recompute(day, employee_id)
             after = self._arrival_ts(day, employee_id)
         if before is None:
@@ -432,6 +438,16 @@ class Store:
                              (day.isoformat(), employee_id))
         return [self._sighting(r) for r in rows]
 
+    def sightings_between(self, start: dt.date, end: dt.date) -> list[Sighting]:
+        rows = self._all("SELECT * FROM sightings WHERE day BETWEEN ? AND ? ORDER BY ts", (start.isoformat(), end.isoformat()))
+        return [self._sighting(r) for r in rows]
+
+    def unknown_counts(self, start: dt.date, end: dt.date) -> dict[dt.date, int]:
+        """Unidentified faces per day, whatever became of them."""
+        rows = self._all("SELECT day, COUNT(*) AS n FROM unknowns WHERE day BETWEEN ? AND ? GROUP BY day",
+                         (start.isoformat(), end.isoformat()))
+        return {dt.date.fromisoformat(r["day"]): r["n"] for r in rows}
+
     def sighting(self, sighting_id: int) -> Sighting | None:
         rows = self._all("SELECT * FROM sightings WHERE id = ?", (sighting_id,))
         return self._sighting(rows[0]) if rows else None
@@ -466,6 +482,23 @@ class Store:
         return [(dt.date.fromisoformat(r["day"]),
                  Checkin(r["employee_id"], dt.datetime.fromisoformat(r["first_seen"]), r["source"], r["score"],
                          r["image"])) for r in rows]
+
+    def labelled_faces(self, start: dt.date, end: dt.date) -> list[tuple[str | None, str, str]]:
+        """Camera snapshots between two days with what admins made of them: (employee or None for
+        a stranger, image, kind). Kinds: camera (never corrected), corrected (moved to the right
+        person), admin (unidentified face named on the review page), rejected ("not them") and
+        ignored (unidentified face ignored)."""
+        out = []
+        for r in self._all("SELECT employee_id, image, source, status FROM sightings WHERE day BETWEEN ? AND ? "
+                           "AND image LIKE 'crops/%' AND source != 'manual'", (start.isoformat(), end.isoformat())):
+            if r["status"] == "rejected":
+                out.append((None, r["image"], "rejected"))
+            else:
+                out.append((r["employee_id"], r["image"], r["source"]))
+        for r in self._all("SELECT image FROM unknowns WHERE day BETWEEN ? AND ? AND status = 'ignored' "
+                           "AND image IS NOT NULL", (start.isoformat(), end.isoformat())):
+            out.append((None, r["image"], "ignored"))
+        return out
 
     # unknown faces ---------------------------------------------------------
 

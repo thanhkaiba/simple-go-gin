@@ -111,12 +111,18 @@ def face_label(app: App, face, candidates) -> tuple[str, tuple[int, int, int]]:
     return f"? {reason}", (0, 165, 255)
 
 
-def draw(frame, labelled, people=()) -> bytes:
+def draw(frame, labelled, people=(), area=None) -> bytes:
     import cv2
 
     from .faces import encode_jpeg
 
     canvas = frame.copy()
+    if area is not None:  # dim what is not analysed and outline the area
+        x1, y1, x2, y2 = area
+        inside = canvas[y1:y2, x1:x2].copy()
+        canvas = (canvas * 0.45).astype(canvas.dtype)
+        canvas[y1:y2, x1:x2] = inside
+        cv2.rectangle(canvas, (x1, y1), (x2 - 1, y2 - 1), (0, 215, 255), 2)
     for p in people:  # person tracking: thin grey box with the person's track number
         x1, y1, x2, y2 = (int(v) for v in p.box)
         cv2.rectangle(canvas, (x1, y1), (x2, y2), (170, 170, 170), 1)
@@ -227,7 +233,7 @@ def run(cfg: Config) -> None:
                 live.faces = [text for _, (text, _) in labelled]
                 live.people = len(people)
                 if live.wants_frame():
-                    live.set_frame(draw(frame, labelled, people))
+                    live.set_frame(draw(frame, labelled, people, cfg.camera.area_box(frame.shape)))
                 fps_count += 1
             else:
                 time.sleep(0.02)

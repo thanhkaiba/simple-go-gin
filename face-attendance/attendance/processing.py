@@ -1,6 +1,7 @@
 """One camera frame -> faces, people and tracker decisions. Shared by the live loop and `benchmark`."""
 from __future__ import annotations
 
+import dataclasses
 import datetime as dt
 import logging
 
@@ -45,7 +46,23 @@ class FrameProcessor:
     def process(self, frame: np.ndarray, ts: dt.datetime, record: bool = True
                 ) -> tuple[list[Decision], list[tuple[DetectedFace, list, int | None]], list[PersonTrack]]:
         """Returns (decisions, faces with their gallery matches and person id, visible people).
-        With record=False (camera preview) nothing is added to the trackers' decisions."""
+        With record=False (camera preview) nothing is added to the trackers' decisions.
+
+        Only camera.area of the frame is analysed when it is set; the boxes returned are in
+        whole-frame pixels."""
+        area = self.cfg.camera.area_box(frame.shape)
+        if area is not None:
+            x0, y0, x1, y1 = area
+            decisions, matched, people = self._process(frame[y0:y1, x0:x1], ts, record)
+            shift = np.array([x0, y0, x0, y0], dtype=np.float32)
+            matched = [(dataclasses.replace(f, bbox=tuple(float(v) for v in np.add(f.bbox, shift)),
+                                            landmarks=None if f.landmarks is None else f.landmarks + shift[:2]), c, pid)
+                       for f, c, pid in matched]
+            people = [dataclasses.replace(p, box=p.box + shift) for p in people]
+            return decisions, matched, people
+        return self._process(frame, ts, record)
+
+    def _process(self, frame: np.ndarray, ts: dt.datetime, record: bool):
         regions, people, followed, full_frame = (), [], None, True
         detector = self._detector_or_none() if self.mode == "person" else None
         if detector is not None:

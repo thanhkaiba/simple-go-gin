@@ -50,6 +50,33 @@ class CameraConfig:
     url: str = ""  # rtsp://..., a video file, or a webcam index such as "0"
     process_fps: float = 5.0
     enhance_low_light: bool = True
+    # Part of the picture to analyse, as fractions "left,top,right,bottom" (e.g. "0.3,0.1,0.8,1");
+    # empty = the whole picture. Cropping to the walkway makes faces bigger for the detector and
+    # ignores people sitting elsewhere in the room. Easiest to set on the Live camera page.
+    area: str = ""
+
+    def area_box(self, shape) -> tuple[int, int, int, int] | None:
+        """The area in pixels of a frame of `shape`, or None for the whole frame."""
+        a = parse_area(self.area)
+        if a is None:
+            return None
+        h, w = shape[:2]
+        return int(a[0] * w), int(a[1] * h), int(a[2] * w), int(a[3] * h)
+
+
+def parse_area(text: str) -> tuple[float, float, float, float] | None:
+    """"left,top,right,bottom" fractions -> tuple, or None when empty. Raises ValueError."""
+    if not text or not text.strip():
+        return None
+    try:
+        x1, y1, x2, y2 = (float(v) for v in text.split(","))
+    except ValueError:
+        raise ValueError("camera.area must be four numbers: left,top,right,bottom (fractions 0-1)") from None
+    if not (0 <= x1 < x2 <= 1 and 0 <= y1 < y2 <= 1):
+        raise ValueError("camera.area must satisfy 0 <= left < right <= 1 and 0 <= top < bottom <= 1")
+    if x2 - x1 < 0.1 or y2 - y1 < 0.1:
+        raise ValueError("camera.area is too small (at least a tenth of the picture each way)")
+    return x1, y1, x2, y2
 
 
 DEFAULT_MODELS = {
@@ -204,6 +231,8 @@ class Config:
         check_late_message_item(lm.item)
         if not 0 <= self.recognition.cpu_threads <= 64:
             raise ValueError("recognition.cpu_threads must be between 0 (automatic) and 64")
+        a = parse_area(self.camera.area)
+        self.camera.area = ",".join(f"{v:.3f}".rstrip("0").rstrip(".") or "0" for v in a) if a else ""
         t = self.tracking
         if t.mode not in ("face", "person"):
             raise ValueError("tracking.mode must be face or person")

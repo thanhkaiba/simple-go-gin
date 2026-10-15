@@ -148,6 +148,8 @@ The menu at the top has everything:
   **Starting without any photos:** let the camera run for a day or two. Everyone who passes appears here; name each person once, and from then on the camera recognises them. Upload extra photos later for people it still finds hard.
 - **Employees:** search, add, or import from CSV. Open a person to drag and drop their photos (with a preview before uploading), see their upcoming leave, or stop tracking them.
 - **Live camera:** what the camera sees, with faces labelled; outside camera hours, turn it on for 15 minutes to adjust its position.
+  - **Detection area:** click *Select area*, drag over the walkway on the picture and *Save area*. Only that part is analysed (the rest is dimmed): faces get bigger for the detector, which helps most with a camera that sees a wide room, and people sitting elsewhere are ignored. *Use whole picture* undoes it.
+- **Accuracy:** how well the camera is doing, measured from your corrections on the Today page: the share of identifications that were the wrong person, the share of arrivals it did not recognise, mix-ups (who was taken for whom), and the people who need more photos. Use it to see whether a change of camera position, photos or settings helped.
 - **Settings:** working hours, Google Chat (with a test button), HR system, camera, password and privacy. Rarely needed recognition values are under *Advanced*.
 - **Change log:** every change made on the page, with who made it and when; searchable.
 
@@ -203,6 +205,14 @@ Enter the recommended values in **Settings → Recognition**, adding about 0.02 
     center_embeddings: true
     accept_score: <the value evaluate recommends for "centered">
   ```
+
+**From the camera's own data (after a week or two of use):** every correction you make is remembered, so the system can test settings on real camera snapshots without any extra labelling:
+
+```bash
+python -m attendance evaluate --from-data --days 30
+```
+
+It uses faces moved to the right person, faces named on the review page, faces removed as "not them" and ignored visitors (today is left out until it has been reviewed), and recommends `accept_score` / `min_margin`, raw and centered. Run it again every few weeks.
 
 `python -m attendance enroll --faces faces` imports the same folders as reference photos, as an alternative to uploading on the web page.
 
@@ -296,7 +306,7 @@ Everything is stored in the `data/` folder:
 
 ## Getting the best accuracy
 
-**Camera placement** matters more than any setting.
+**Camera placement** matters more than any setting. Then set a **detection area** on the Live camera page around the walkway.
 - Mount it where everyone **must walk towards it**.
 - Face height or slightly above, tilted down less than 15°.
 - Faces at least 80 px wide (check on the Live camera page).

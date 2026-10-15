@@ -16,6 +16,7 @@ centering (recognition.center_embeddings), which needs its own threshold.
 from __future__ import annotations
 
 import dataclasses
+import datetime as dt
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -154,6 +155,41 @@ def _samples(enrolled: list[Photo], tests: list[Photo] | None, center: bool) -> 
     return samples
 
 
+def _report(label: str, samples: list[Sample], votes_required: int, center: bool) -> Row | None:
+    print(f"\n=== {label} ===")
+    rows = sweep(samples)
+    best = recommend(rows)
+    print(f"{len(samples)} test photos, {sum(s.truth is None for s in samples)} of non-employees.")
+    margin = best.margin if best else 0.08
+    print(f"min_margin {margin}:  {'threshold':>9} {'recognised':>11} {'WRONG':>6} {'rejected':>9}")
+    for r in rows:
+        if r.margin == margin:
+            print(f"{'':17s}{r.threshold:9.3f} {r.correct:5d}/{r.employees:<5d} {r.wrong:6d} {r.rejected:9d}")
+    if best is None:
+        print("No setting avoids wrong identifications. Add or replace reference photos.")
+        return None
+    v = visits(samples, best.threshold, best.margin, votes_required)
+    print(f"Recommended: accept_score: {best.threshold}  min_margin: {best.margin}"
+          f"{'  center_embeddings: true' if center else ''} -> "
+          f"{best.correct}/{best.employees} employee photos recognised "
+          f"({best.correct / max(best.employees, 1):.0%}), 0 wrong")
+    print(f"  per visit (votes like the live system): {v.correct}/{v.employees} recognised, "
+          f"{v.wrong} wrong, {v.rejected} sent for review")
+    return best
+
+
+def _summary(results: dict[str, Row | None]) -> None:
+    ranked = sorted(((k, r) for k, r in results.items() if r), key=lambda x: x[1].correct, reverse=True)
+    if len(ranked) > 1:
+        if ranked[0][1].correct == ranked[1][1].correct:
+            print(f"\n{ranked[0][0]} and {ranked[1][0]} did equally well on these photos; test with more, harder "
+                  "photos (dark, blurred, side views, masks) to tell them apart.")
+        else:
+            print(f"\nMost accurate on your photos: {ranked[0][0]}")
+    print("\nThese are single-photo results. Live, several frames must agree, so the per-visit accuracy is higher.")
+    print("Add about 0.02 to accept_score as a safety margin.")
+
+
 def evaluate(cfg, gallery_dir: Path, test_dir: Path | None, backends: list[str]) -> None:
     from .recognizer import FaceRecognizer
 
@@ -173,34 +209,73 @@ def evaluate(cfg, gallery_dir: Path, test_dir: Path | None, backends: list[str])
             if center and people < MIN_PEOPLE_TO_CENTER:
                 print(f"\n=== {label}: skipped, centering needs photos of at least {MIN_PEOPLE_TO_CENTER} people ===")
                 continue
-            print(f"\n=== {label} ===")
-            samples = _samples(enrolled, tests, center)
-            rows = sweep(samples)
-            best = recommend(rows)
-            results[label] = best
-            print(f"{len(samples)} test photos, {sum(s.truth is None for s in samples)} of non-employees.")
-            margin = best.margin if best else 0.08
-            print(f"min_margin {margin}:  {'threshold':>9} {'recognised':>11} {'WRONG':>6} {'rejected':>9}")
-            for r in rows:
-                if r.margin == margin:
-                    print(f"{'':17s}{r.threshold:9.3f} {r.correct:5d}/{r.employees:<5d} {r.wrong:6d} {r.rejected:9d}")
-            if best is None:
-                print("No setting avoids wrong identifications. Add or replace reference photos.")
-                continue
-            v = visits(samples, best.threshold, best.margin, cfg.recognition.votes_required)
-            print(f"Recommended: accept_score: {best.threshold}  min_margin: {best.margin}"
-                  f"{'  center_embeddings: true' if center else ''} -> "
-                  f"{best.correct}/{best.employees} employee photos recognised "
-                  f"({best.correct / max(best.employees, 1):.0%}), 0 wrong")
-            print(f"  per visit (votes like the live system): {v.correct}/{v.employees} recognised, "
-                  f"{v.wrong} wrong, {v.rejected} sent for review")
+            results[label] = _report(label, _samples(enrolled, tests, center), cfg.recognition.votes_required, center)
+    _summary(results)
 
-    ranked = sorted(((k, r) for k, r in results.items() if r), key=lambda x: x[1].correct, reverse=True)
-    if len(ranked) > 1:
-        if ranked[0][1].correct == ranked[1][1].correct:
-            print(f"\n{ranked[0][0]} and {ranked[1][0]} did equally well on these photos; test with more, harder "
-                  "photos (dark, blurred, side views, masks) to tell them apart.")
-        else:
-            print(f"\nMost accurate on your photos: {ranked[0][0]}")
-    print("\nThese are single-photo results. Live, several frames must agree, so the per-visit accuracy is higher.")
-    print("Add about 0.02 to accept_score as a safety margin.")
+
+# --- from the system's own data ----------------------------------------------------------------
+
+SAME_IMAGE = 0.99  # a reference this close to a test face was learned from that very photo
+
+KIND_LABELS = {
+    "camera": "recognised by the camera and never corrected",
+    "corrected": "moved to the right person by an admin (the camera was wrong)",
+    "admin": "unidentified faces later named by an admin",
+    "rejected": "removed as 'not them' (counted as strangers)",
+    "ignored": "unidentified faces ignored by an admin (strangers)",
+}
+
+
+def data_samples(app, recognizer, days: int, center: bool) -> tuple[list[Sample], dict[str, int]]:
+    """Test faces from the camera's own snapshots, labelled by what admins did with them, matched
+    against the current reference photos (minus any learned from that same snapshot)."""
+    from .enroll import read_image
+
+    store, data_dir = app.store, app.data_dir
+    today = app.service.now().date()
+    start = today - dt.timedelta(days=days)
+    labelled = store.labelled_faces(start, today - dt.timedelta(days=1))  # today may not be reviewed yet
+    refs = [(r.employee_id, r.vector) for r in store.references(app.cfg.recognition.model_id())
+            if r.employee_id in store.employees()]
+    if not refs:
+        return [], {}
+    ref_matrix = np.stack([v / max(float(np.linalg.norm(v)), 1e-12) for _, v in refs])
+    shared = Gallery(refs, center)
+    samples, counts = [], {}
+    for truth, image_rel, kind in labelled:
+        path = data_dir / image_rel
+        image = read_image(path) if path.exists() else None
+        face = recognizer.largest_face(image) if image is not None else None
+        if face is None:
+            continue
+        same = ref_matrix @ face.embedding >= SAME_IMAGE
+        gallery = Gallery([r for r, s in zip(refs, same) if not s], center) if same.any() else shared
+        samples.append(score(gallery, truth, face.embedding, image_rel))
+        counts[kind] = counts.get(kind, 0) + 1
+    return samples, counts
+
+
+def evaluate_data(app, days: int) -> None:
+    """Choose thresholds from what the camera saw and what admins corrected."""
+    recognizer = app.recognizer()
+    people = len(app.gallery.counts())
+    results = {}
+    for center in (False, True):
+        if center and people < MIN_PEOPLE_TO_CENTER:
+            print(f"\nCentered: skipped, needs reference photos of at least {MIN_PEOPLE_TO_CENTER} people.")
+            continue
+        samples, counts = data_samples(app, recognizer, days, center)
+        if not samples:
+            print(f"No usable camera snapshots from the last {days} days (excluding today). "
+                  "Let the camera run and review its faces first.")
+            return
+        if not center:
+            print(f"Camera snapshots from the last {days} days:")
+            for kind, n in sorted(counts.items(), key=lambda kv: -kv[1]):
+                print(f"  {n:5d}  {KIND_LABELS.get(kind, kind)}")
+            if counts.get("camera", 0) > 3 * (len(samples) - counts.get("camera", 0)):
+                print("  Most of these were accepted by the current settings, so they flatter them; the corrected,"
+                      " named and removed faces are the ones that tell settings apart.")
+        label = f"{app.cfg.recognition.backend}, {'centered' if center else 'raw cosine'}"
+        results[label] = _report(label, samples, app.cfg.recognition.votes_required, center)
+    _summary(results)

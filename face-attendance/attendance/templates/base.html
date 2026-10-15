@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{% block title %}Attendance{% endblock %}</title>
 <style>
+  [hidden] { display: none !important; }  /* the hidden attribute wins over display rules below */
   :root {
     --bg: #f4f6f8; --card: #fff; --text: #1d2330; --muted: #667085; --line: #e3e7ec; --hover: #f8fafc;
     --brand: #2563eb; --brand-dark: #1d4ed8;
@@ -94,7 +95,7 @@
   .sighting.rejected { opacity: .55; }
   .sighting.rejected .time { text-decoration: line-through; }
   .dialog-body .sighting form { display: flex; gap: 4px; }
-  .sighting [hidden] { display: none !important; }
+
   .sighting.arrival { border-color: var(--ok, #16a34a); }
   .sighting select { max-width: 130px; }
   details.panel { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); margin-bottom: 16px; box-shadow: var(--shadow); }
@@ -112,6 +113,7 @@
   <nav class="nav">
     <a href="{{ url_for('index') }}" class="{{ 'on' if nav == 'index' }}">Today</a>
     <a href="{{ url_for('report') }}" class="{{ 'on' if nav == 'report' }}">Late &amp; absence report</a>
+    <a href="{{ url_for('accuracy') }}" class="{{ 'on' if nav == 'accuracy' }}">Accuracy</a>
     <a href="{{ url_for('unknowns') }}" class="{{ 'on' if nav == 'unknowns' }}">To review{% if pending %} <span class="count">{{ pending }}</span>{% endif %}</a>
     <a href="{{ url_for('employees') }}" class="{{ 'on' if nav in ('employees', 'employee') }}">Employees</a>
     <a href="{{ url_for('live_page') }}" class="{{ 'on' if nav == 'live_page' }}">Live camera</a>
