@@ -1,6 +1,6 @@
 # Camera attendance
 
-A computer in the office reads the camera stream, recognises faces **locally**, works out who arrived on time and who is late, and posts to **Google Chat**. Everything is managed from a web page: employees and their photos, holidays and leave, corrections, the live camera view and all settings.
+A computer in the office reads the camera stream, recognises faces **locally**, works out who arrived on time, who is late and who did not come, and posts to **Google Chat**. The web page is about that data: today's attendance with corrections, a late & absence report with CSV export, employees and their photos, the live camera view and settings. **Holidays and leave come from the HR system's API**.
 
 ```
 Camera (RTSP) ──► Office computer: detect faces → drop poor frames → follow each face across frames → match
@@ -9,7 +9,8 @@ Camera (RTSP) ──► Office computer: detect faces → drop poor frames → f
                     └─ not confident ──► "unidentified" queue → admin picks the right person
                     │
                     ├─► Google Chat: not-seen list at the late time, late arrivals, unidentified faces, summary
-                    └─► Admin web page: attendance, corrections, employees, holidays & leave, live camera, settings
+                    └─► Admin web page: attendance & corrections, late/absence report, employees, live camera, settings
+HR system API ──► holidays, make-up work days, employee leave (refreshed every 15 min and before the late time)
 ```
 
 Runs on **Windows 10/11**, **macOS** (Apple Silicon or Intel) and **Linux**.
@@ -24,8 +25,9 @@ Times are set on the Settings page; defaults shown.
 | **Not seen by 10:00** | Late |
 | First seen **after 10:00** | Late, posted right away: "🟠 *Bob* arrived at 10:23, 23 min late." |
 | Not seen all morning | Listed as "Not seen on camera" in the summary |
-| On leave, business trip, working remotely | Never counted as late or missing |
-| Company holiday | No notifications at all |
+| On leave, business trip, working remotely (from the HR system) | Never counted as late or missing |
+| Holiday (from the HR system) | No notifications at all |
+| Day when the camera did not work at all | Nobody is counted as "not seen" |
 | Face not recognised | Sent to the admin. Once confirmed, the arrival time is the time of the photo |
 
 **Google Chat messages.** All of a day's messages go in one thread.
@@ -110,7 +112,7 @@ Then open **http://localhost:8000**, or `http://<computer IP>:8000` from another
    - Add people one by one, or import a CSV file with columns `id,name`.
    - Open each person and **upload 5–10 photos**: looking straight, slightly left and right, with and without glasses, and one with a mask if they often wear one. Frames from the door camera itself work best.
    - The page warns about blurred photos, photos without a face, and photos that look like another employee.
-3. **Holidays & leave:** enter public holidays, make-up work days and known leave.
+3. **HR system** (Settings): enter the API address and token, then click *Load leave data from the HR system now*. See [HR system API](#hr-system-api) for the format.
 4. **Live camera:** click *Start preview* to see what the camera sees, with each face labelled. Use it to position the camera. Green boxes mean a face is recognised; orange boxes show why a face cannot be used (too small, blurred, turned away).
 
 ## 3. Daily use
@@ -119,8 +121,45 @@ Then open **http://localhost:8000**, or `http://<computer IP>:8000` from another
   - **Change time / Add arrival:** enter an arrival by hand, e.g. someone who missed the camera.
   - **Wrong person? It was… → Move:** the camera recorded the wrong person; the time and photo move to the right one.
   - **Delete:** remove a wrong arrival.
+- **Late & absence report:** pick a period to see, per employee, the work days, on-time and late days, total minutes late, days not seen and days on leave, plus a day-by-day list.
+  - Download a **summary CSV** or a **CSV with every day**; both open in Excel.
+  - Days when the camera did not work are flagged and not counted as absences.
 - **Unidentified:** faces the system was not sure about. Pick the right person and the arrival is recorded at the photo time; the face is also added to their reference photos, so they are recognised next time. *Ignore* is for visitors.
-- **Change log:** every change made on the page (corrections, confirmations, photos, employees, calendar, settings), with who made it and when.
+- **Change log:** every change made on the page (corrections, confirmations, photos, employees, settings), with who made it and when.
+
+## HR system API
+
+Holidays, make-up work days and leave are read from the HR system; they are not entered on this web page. The program calls:
+
+```
+GET <leave_api.url>?from=2026-10-08&to=2026-12-14
+Authorization: Bearer <leave_api.token>
+```
+
+and expects JSON like this:
+
+```json
+{
+  "holidays": [{"date": "2026-11-20", "name": "Teachers' Day"}],
+  "workdays": [{"date": "2026-10-24", "name": "Make-up day"}],
+  "leaves": [
+    {"employee_id": "NV001", "start": "2026-10-15", "end": "2026-10-16", "type": "leave", "note": "Family"},
+    {"employee_id": "NV002", "start": "2026-10-15", "type": "sick", "period": "morning"}
+  ]
+}
+```
+
+- **`employee_id`** must match the id on the Employees page.
+- **`end`** defaults to `start`.
+- **`type`** is free text. `leave`, `sick`, `business_trip` and `remote` get friendly labels; anything else is shown as sent.
+- **`period`** is `full` (default), `morning` or `afternoon`. Attendance is checked in the morning, so afternoon-only leave is ignored.
+- **Each refresh replaces** the data for the requested range, so cancelled leave disappears too.
+
+**If the HR system uses a different format**, only the `parse()` function in `attendance/leave_api.py` needs changing.
+
+**When refreshes happen:** every 15 minutes, once more 5 minutes before the late time, and when someone clicks *Refresh now* on the Attendance page.
+
+**If the HR system is unreachable**, the last copy keeps being used. The Attendance page and the chat messages then say when the data was last updated.
 
 ## 4. Tune recognition with your photos (recommended)
 
@@ -232,7 +271,7 @@ Everything is stored in the `data/` folder:
 5. **Several frames must agree:** at least twice as many votes as everyone else combined. A track that ends one vote short is still accepted when all its votes agree and the match is very strong (fast walkers).
 6. **No guessing:** everything else goes to the admin, and each confirmation teaches the system that face.
 7. **Look-alike check:** employees whose photos match each other are flagged before they cause mix-ups.
-8. **Camera health:** a black, blank or frozen picture counts as an outage instead of "nobody came".
+8. **Camera health:** a black, blank or frozen picture counts as an outage instead of "nobody came"; days without any camera data are never counted as absences.
 
 ## Development
 

@@ -17,12 +17,11 @@ SATURDAY = dt.date(2026, 10, 17)
 
 def test_holiday_sends_nothing_and_extra_workday_counts(env):
     service, store, clock, sent = env
-    store.set_calendar_day(DAY, "holiday", "National day")
+    store.replace_external(DAY, SATURDAY, [(DAY, "holiday", "National day"), (SATURDAY, "workday", "Make-up day")], [])
     run_until(service, clock, at(12, 0), step=dt.timedelta(minutes=5))
     assert sent == []
     assert service.report(DAY).day_note == "Holiday: National day"
 
-    store.set_calendar_day(SATURDAY, "workday", "Make-up day")
     clock.t = at(8, 0, day=SATURDAY)
     run_until(service, clock, at(10, 1, day=SATURDAY))
     assert "3/3 people not seen yet" in sent[-1]
@@ -30,7 +29,7 @@ def test_holiday_sends_nothing_and_extra_workday_counts(env):
 
 def test_people_on_leave_are_not_late_or_missing(env):
     service, store, clock, sent = env
-    store.add_leave("B", DAY - dt.timedelta(days=1), DAY + dt.timedelta(days=1), "business_trip", "Hanoi")
+    store.replace_external(DAY, DAY, [], [("B", DAY - dt.timedelta(days=1), DAY + dt.timedelta(days=1), "business_trip", "Hanoi")])
     run_until(service, clock, at(10, 1))
     deadline = sent[-1]
     assert "1/2 people not seen yet" not in deadline and "2/2 people not seen yet" in deadline
@@ -186,3 +185,38 @@ def test_frame_health_detects_black_blank_and_frozen_images():
     h = FrameHealth(bad_after_s=60)
     for t in range(0, 120, 5):  # a normal, slightly noisy scene
         assert h.update(rng.integers(0, 255, (480, 640, 3), dtype=np.uint8), t) is None
+
+
+# period report ------------------------------------------------------------------
+
+def test_period_report_counts_late_not_seen_and_leave(env):
+    service, store, clock, _ = env
+    monday, tuesday = dt.date(2026, 10, 12), dt.date(2026, 10, 13)
+    store.replace_external(monday, DAY, [], [("C", tuesday, tuesday, "leave", "")])
+    for day in (monday, tuesday, DAY):
+        store.mark_notice(day, "camera_ok", at(9, 0, day=day))
+    store.record_checkin(dt.date(2026, 10, 9), "A", at(9, 1, day=dt.date(2026, 10, 9)), "manual", None, None)
+    for day, emp, hh, mm in [(monday, "A", 9, 5), (monday, "B", 10, 15), (tuesday, "A", 10, 30), (DAY, "A", 9, 0)]:
+        store.record_checkin(day, emp, at(hh, mm, day=day), "camera", 0.8, None)
+    clock.t = at(9, 30)  # before today's late time: today is left out
+    rep = service.period_report(dt.date(2026, 10, 9), DAY)
+    assert [d.day for d in rep.days] == [dt.date(2026, 10, 9), monday, tuesday]  # the weekend is skipped
+    assert [d.day for d in rep.no_data_days] == [dt.date(2026, 10, 9)]  # before the system ran
+    people = {p.employee_id: p for p in rep.people}
+    assert (people["A"].on_time, people["A"].late, people["A"].late_minutes) == (2, 1, 30)  # entered arrival counts
+    assert (people["B"].late, people["B"].not_seen, people["B"].late_minutes) == (1, 1, 15)
+    assert (people["C"].not_seen, people["C"].on_leave, people["C"].work_days) == (1, 1, 1)
+    assert rep.people[0].employee_id == "B"  # most late + not seen first
+
+    clock.t = at(10, 30)
+    assert service.period_report(DAY, DAY).days[0].day == DAY
+
+
+def test_days_without_camera_data_are_flagged(env):
+    service, store, clock, _ = env
+    clock.t = at(9, 30)
+    assert service.report(DAY).no_camera_data  # camera hours started but no frame yet
+    service.tick(camera_ok=True)
+    assert not service.report(DAY).no_camera_data
+    assert service.report(DAY - dt.timedelta(days=1)).no_camera_data
+    assert not service.report(DAY + dt.timedelta(days=1)).no_camera_data  # the future is not "missing"

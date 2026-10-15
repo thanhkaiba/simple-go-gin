@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block body %}
 <h1>Change log</h1>
-<p class="muted">Every change made on this page: corrections, confirmations, photos, employees, calendar and settings.</p>
+<p class="muted">Every change made on this page: corrections, confirmations, photos, employees and settings.</p>
 <div class="table-wrap"><table>
   <tr><th>When</th><th>Who</th><th>What</th><th>Details</th></tr>
   {% for ts, who, action, details in rows %}

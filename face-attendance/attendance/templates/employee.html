@@ -35,12 +35,11 @@
   {% endfor %}
 </div>
 
-<h2>Upcoming leave</h2>
+<h2>Upcoming leave <span class="muted">(from the HR system)</span></h2>
 <table>
-  {% for l in leaves %}<tr><td>{{ l.start }} – {{ l.end }}</td><td>{{ LEAVE_KINDS.get(l.kind, l.kind) }}</td><td class="muted">{{ l.note }}</td></tr>
+  {% for l in leaves %}<tr><td>{{ l.start }}{% if l.end != l.start %} – {{ l.end }}{% endif %}</td><td>{{ leave_label(l.kind) }}</td><td class="muted">{{ l.note }}</td></tr>
   {% else %}<tr><td class="muted">None.</td></tr>{% endfor %}
 </table>
-<p><a href="{{ url_for('calendar') }}">Add leave on the Holidays &amp; leave page</a></p>
 
 <h2 class="bad">Delete permanently</h2>
 <div class="card">

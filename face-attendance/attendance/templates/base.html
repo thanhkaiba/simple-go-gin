@@ -44,7 +44,7 @@
   <a href="{{ url_for('index') }}" class="{{ 'on' if nav == 'index' }}">Attendance</a>
   <a href="{{ url_for('unknowns') }}" class="{{ 'on' if nav == 'unknowns' }}">Unidentified ({{ pending }})</a>
   <a href="{{ url_for('employees') }}" class="{{ 'on' if nav in ('employees', 'employee') }}">Employees</a>
-  <a href="{{ url_for('calendar') }}" class="{{ 'on' if nav == 'calendar' }}">Holidays &amp; leave</a>
+  <a href="{{ url_for('report') }}" class="{{ 'on' if nav == 'report' }}">Late &amp; absence report</a>
   <a href="{{ url_for('live_page') }}" class="{{ 'on' if nav == 'live_page' }}">Live camera</a>
   <a href="{{ url_for('settings_page') }}" class="{{ 'on' if nav == 'settings_page' }}">Settings</a>
   <a href="{{ url_for('audit') }}" class="{{ 'on' if nav == 'audit' }}">Change log</a>

@@ -78,6 +78,16 @@ class GoogleChatConfig:
 
 
 @dataclass
+class LeaveApiConfig:
+    """HR system API that provides holidays, extra work days and employee leave (see leave_api.py)."""
+    url: str = ""  # empty: no leave data, only work_days decide who is expected
+    token: str = ""  # sent as "Authorization: Bearer <token>"
+    refresh_minutes: int = 15
+    days_back: int = 7  # range fetched around today
+    days_ahead: int = 60
+
+
+@dataclass
 class WebConfig:
     enabled: bool = True
     host: str = "0.0.0.0"
@@ -98,6 +108,7 @@ class Config:
     camera: CameraConfig = field(default_factory=CameraConfig)
     recognition: RecognitionConfig = field(default_factory=RecognitionConfig)
     google_chat: GoogleChatConfig = field(default_factory=GoogleChatConfig)
+    leave_api: LeaveApiConfig = field(default_factory=LeaveApiConfig)
     web: WebConfig = field(default_factory=WebConfig)
     base_dir: Path = field(default=Path("."), repr=False)
 
@@ -129,6 +140,8 @@ class Config:
             raise ValueError("process_fps must be between 0 and 30")
         if self.retention_days < 1:
             raise ValueError("retention_days must be at least 1")
+        if self.leave_api.refresh_minutes < 1:
+            raise ValueError("leave_api.refresh_minutes must be at least 1")
         if self.google_chat.unknown_batch_minutes < 0:
             raise ValueError("unknown_batch_minutes must not be negative")
         self.tz  # raises on an unknown time zone

@@ -1,8 +1,10 @@
-"""Admin web page: attendance, corrections, employees and photos, calendar, live camera, settings."""
+"""Admin web page: attendance and corrections, late/absence report, employees and photos, live camera, settings."""
 from __future__ import annotations
 
+import csv
 import datetime as dt
 import hmac
+import io
 import secrets
 import time
 from pathlib import Path
@@ -12,7 +14,7 @@ from urllib.parse import urlparse
 from flask import (Flask, Response, abort, flash, jsonify, redirect, render_template, request,
                    send_from_directory, url_for)
 
-from . import settings
+from . import leave_api, settings
 from .service import SOURCES, minutes_late
 from .store import LEAVE_KINDS
 
@@ -70,7 +72,15 @@ def create_app(core: "App") -> Flask:
     @app.context_processor
     def common():
         return {"pending": len(store.unknowns()), "nav": request.endpoint, "SOURCES": SOURCES,
-                "LEAVE_KINDS": LEAVE_KINDS, "WEEKDAYS": WEEKDAYS}
+                "leave_label": lambda kind: LEAVE_KINDS.get(kind, kind), "WEEKDAYS": WEEKDAYS}
+
+    def leave_status() -> dict:
+        status = leave_api.read_status(store)
+        for key in ("at", "last_success"):
+            if status.get(key):
+                status[key] = dt.datetime.fromisoformat(status[key]).astimezone(service.tz)
+        return {"enabled": core.leave_sync.enabled, "warning": leave_api.warning(cfg, store, service.now()),
+                **status}
 
     def done(message: str, endpoint: str, **kwargs):
         flash(message, "ok")
@@ -87,7 +97,8 @@ def create_app(core: "App") -> Flask:
         day = _date(request.args.get("day"), service.now().date())
         rep = service.report(day)
         return render_template("index.html", rep=rep, employees=store.employees(),
-                               late=lambda a: minutes_late(a, rep.window), today=service.now().date())
+                               late=lambda a: minutes_late(a, rep.window), today=service.now().date(),
+                               leave=leave_status())
 
     @app.post("/day/<day>/<employee_id>/set")
     def set_arrival(day: str, employee_id: str):
@@ -248,56 +259,68 @@ def create_app(core: "App") -> Flask:
         store.log(service.now(), user(), "delete employee", f"{employee_id} {person.name}")
         return done(f"{person.name} and their face data were deleted.", "employees")
 
-    # calendar ---------------------------------------------------------------------
+    # leave data and reports ------------------------------------------------------------
 
-    @app.get("/calendar")
-    def calendar():
+    @app.post("/leave/sync")
+    def leave_sync():
+        if not core.leave_sync.enabled:
+            return failed("Set the HR system API address in Settings first.", "settings_page")
+        status = core.leave_sync.sync()
+        back = request.form.get("back") or url_for("index")
+        flash(("Leave data updated: " if status["ok"] else "Leave data update failed: ") + status["message"],
+              "ok" if status["ok"] else "error")
+        return redirect(back if back.startswith("/") and not back.startswith("//") else url_for("index"))
+
+    def _period():
         today = service.now().date()
-        return render_template("calendar.html", days=store.calendar(today - dt.timedelta(days=30)),
-                               leaves=store.leaves(ending_after=today), employees=store.employees(),
-                               names={e.id: e.name for e in store.all_employees()}, today=today)
+        start = _date(request.args.get("start"), today.replace(day=1))
+        end = _date(request.args.get("end"), today)
+        if end < start or (end - start).days > 366:
+            abort(400, "choose an end date on or after the start date, at most one year later")
+        return start, end
 
-    @app.post("/calendar/days")
-    def add_days():
-        try:
-            start = dt.date.fromisoformat(request.form.get("start", ""))
-            end = dt.date.fromisoformat(request.form.get("end") or request.form.get("start", ""))
-            if end < start or (end - start).days > 60:
-                raise ValueError("choose an end date on or after the start date, at most 60 days later")
-            kind, note = request.form.get("kind", ""), request.form.get("note", "")
-            day = start
-            while day <= end:
-                store.set_calendar_day(day, kind, note)
-                day += dt.timedelta(days=1)
-        except ValueError as exc:
-            return failed(str(exc), "calendar")
-        store.log(service.now(), user(), f"add {kind}", f"{start}..{end} {note}")
-        return done("Calendar updated.", "calendar")
+    @app.get("/report")
+    def report():
+        start, end = _period()
+        return render_template("report.html", rep=service.period_report(start, end), start=start, end=end)
 
-    @app.post("/calendar/days/<day>/delete")
-    def delete_day(day: str):
-        store.delete_calendar_day(_date(day, service.now().date()))
-        store.log(service.now(), user(), "delete calendar day", day)
-        return done("Removed.", "calendar")
+    def _csv(name: str, header: list[str], rows) -> Response:
+        out = io.StringIO()
+        writer = csv.writer(out)
+        writer.writerow(header)
+        writer.writerows(rows)
+        # The byte order mark makes Excel read accented names correctly.
+        return Response("\ufeff" + out.getvalue(), mimetype="text/csv",
+                        headers={"Content-Disposition": f'attachment; filename="{name}"'})
 
-    @app.post("/calendar/leaves")
-    def add_leave():
-        try:
-            start = dt.date.fromisoformat(request.form.get("start", ""))
-            end = dt.date.fromisoformat(request.form.get("end") or request.form.get("start", ""))
-            emp = request.form.get("employee_id", "")
-            store.add_leave(emp, start, end, request.form.get("kind", ""), request.form.get("note", ""))
-        except ValueError as exc:
-            return failed(str(exc), "calendar")
-        store.log(service.now(), user(), "add leave", f"{emp} {start}..{end} {request.form.get('kind')}")
-        return done("Leave added.", "calendar")
+    @app.get("/report/summary.csv")
+    def report_summary_csv():
+        start, end = _period()
+        rep = service.period_report(start, end)
+        return _csv(f"attendance-summary-{start}-{rep.end}.csv",
+                    ["employee_id", "name", "work_days", "on_time", "late", "late_minutes", "not_seen", "on_leave"],
+                    [[p.employee_id, p.name, p.work_days, p.on_time, p.late, p.late_minutes, p.not_seen, p.on_leave]
+                     for p in rep.people])
 
-    @app.post("/calendar/leaves/<int:leave_id>/delete")
-    def delete_leave(leave_id: int):
-        removed = store.delete_leave(leave_id)
-        if removed:
-            store.log(service.now(), user(), "delete leave", f"{removed.employee_id} {removed.start}..{removed.end}")
-        return done("Leave removed.", "calendar")
+    @app.get("/report/details.csv")
+    def report_details_csv():
+        start, end = _period()
+        rep = service.period_report(start, end)
+        rows = []
+        for d in rep.days:
+            outage = "; ".join(f"camera down {a:%H:%M}-{b:%H:%M}" for a, b in d.outages)
+            for a in d.on_time:
+                rows.append([d.day, a.employee_id, a.name, "on_time", a.time, 0, SOURCES.get(a.source, a.source), outage])
+            for a in d.late:
+                rows.append([d.day, a.employee_id, a.name, "late", a.time, minutes_late(a, d.window),
+                             SOURCES.get(a.source, a.source), outage])
+            for emp_id, name in d.not_seen:
+                rows.append([d.day, emp_id, name, "no_camera_data" if d.no_camera_data else "not_seen",
+                             "", "", "", outage])
+            for emp_id, name, kind in d.on_leave:
+                rows.append([d.day, emp_id, name, "on_leave", "", "", kind, outage])
+        return _csv(f"attendance-details-{start}-{rep.end}.csv",
+                    ["date", "employee_id", "name", "status", "arrived", "minutes_late", "source_or_leave", "note"], rows)
 
     # live camera --------------------------------------------------------------------
 
@@ -332,7 +355,7 @@ def create_app(core: "App") -> Flask:
 
     @app.get("/settings")
     def settings_page():
-        return render_template("settings.html", s=settings.current(cfg), cfg=cfg)
+        return render_template("settings.html", s=settings.current(cfg), cfg=cfg, leave=leave_status())
 
     @app.post("/settings")
     def save_settings():
@@ -343,7 +366,7 @@ def create_app(core: "App") -> Flask:
             for name in names:
                 key = f"{section}.{name}" if section else name
                 value = current[section][name]
-                if name == "password":
+                if name in ("password", "token"):
                     if form.get(key):
                         changes.setdefault(section, {})[name] = form[key]
                 elif name == "work_days":
@@ -357,7 +380,7 @@ def create_app(core: "App") -> Flask:
         except ValueError as exc:
             return failed(f"Not saved: {exc}", "settings_page")
         store.log(service.now(), user(), "change settings",
-                  ", ".join(f"{s}.{n}" if s else n for s, f in changes.items() for n in f if n != "password"))
+                  ", ".join(f"{s}.{n}" if s else n for s, f in changes.items() for n in f))
         return done("Settings saved and applied.", "settings_page")
 
     @app.post("/settings/test-chat")

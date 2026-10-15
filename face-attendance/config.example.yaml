@@ -49,6 +49,14 @@ google_chat:
   notify_late_arrivals: true
   unknown_batch_minutes: 5   # group unknown-face notices instead of one message per face
 
+leave_api:
+  # HR system endpoint for holidays, make-up work days and employee leave (format: see README).
+  url: ""                 # empty: leave and holidays are not taken into account
+  token: ""               # sent as "Authorization: Bearer <token>"
+  refresh_minutes: 15     # also refreshed just before the late time every day
+  days_back: 7
+  days_ahead: 60
+
 web:
   enabled: true
   host: 0.0.0.0

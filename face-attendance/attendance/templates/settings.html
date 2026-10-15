@@ -24,7 +24,7 @@
     <p>Work days:
       {% for d in range(7) %}<label style="margin-right:10px"><input type="checkbox" name="schedule.work_days" value="{{ d }}" {{ 'checked' if d in s.schedule.work_days }}> {{ WEEKDAYS[d] }}</label>{% endfor %}
     </p>
-    <p class="muted">Holidays and make-up days are set on the <a href="{{ url_for('calendar') }}">Holidays &amp; leave</a> page.</p>
+    <p class="muted">Holidays, make-up work days and leave come from the HR system (below).</p>
   </div>
 
   <div class="card">
@@ -68,6 +68,19 @@
   </div>
 
   <div class="card">
+    <h2 style="margin-top:0">HR system (holidays &amp; leave)</h2>
+    <p class="muted">The API is called with <code>?from=YYYY-MM-DD&amp;to=YYYY-MM-DD</code> and must return holidays,
+      extra work days and leave as described in the README. People on leave are never counted as late or missing.</p>
+    <div class="row">
+      <label style="flex:1 1 420px">API address<input name="leave_api.url" value="{{ s.leave_api.url }}" placeholder="https://hr.example.com/api/attendance-calendar"></label>
+      <label>API token<input name="leave_api.token" type="password" autocomplete="off"
+        placeholder="{{ 'saved; leave empty to keep' if s.leave_api.token else 'none' }}"></label>
+      {{ field('leave_api', 'refresh_minutes', 'Refresh every (min)', type='number') }}
+    </div>
+    {% if leave.enabled %}<p class="muted">Last update: {% if leave.at %}{{ leave.at.strftime('%Y-%m-%d %H:%M') }}, {{ 'ok' if leave.ok else 'failed' }}: {{ leave.message }}{% else %}not yet{% endif %}</p>{% endif %}
+  </div>
+
+  <div class="card">
     <h2 style="margin-top:0">Admin page, privacy and monitoring</h2>
     <div class="row">
       <label style="flex:1 1 300px">Address of this page (used in chat links)<input name="web.public_url" value="{{ s.web.public_url }}"></label>
@@ -81,5 +94,7 @@
   </div>
   <button class="primary">Save settings</button>
 </form>
-<form method="post" action="{{ url_for('test_chat') }}" style="margin-top:12px"><button>Send a test message to Google Chat</button></form>
+<form method="post" action="{{ url_for('test_chat') }}" style="margin-top:12px" class="inline"><button>Send a test message to Google Chat</button></form>
+<form method="post" action="{{ url_for('leave_sync') }}" style="margin-top:12px" class="inline">
+  <input type="hidden" name="back" value="{{ url_for('settings_page') }}"><button>Load leave data from the HR system now</button></form>
 {% endblock %}

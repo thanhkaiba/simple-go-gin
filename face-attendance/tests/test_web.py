@@ -104,23 +104,6 @@ def test_attendance_corrections_from_the_page(core):
     assert "reassign arrival" in c.get("/audit").get_data(as_text=True)
 
 
-def test_calendar_page(core):
-    app, _, _ = core
-    c = client(app)
-    c.post("/calendar/days", data={"start": "2027-02-05", "end": "2027-02-07", "kind": "holiday", "note": "Tet"})
-    assert app.store.calendar_day(dt.date(2027, 2, 6)) == ("holiday", "Tet")
-    resp = c.post("/calendar/days", data={"start": "2027-02-07", "end": "2027-02-05", "kind": "holiday"},
-                  follow_redirects=True)
-    assert "end date" in resp.get_data(as_text=True)
-    c.post("/calendar/leaves", data={"employee_id": "A", "start": str(DAY), "kind": "sick", "note": ""})
-    assert app.store.leaves_on(DAY) == {"A": "sick"}
-    page = c.get("/calendar").get_data(as_text=True)
-    assert "Tet" in page and "Sick" in page
-    c.post(f"/calendar/leaves/{app.store.leaves()[0].id}/delete")
-    c.post("/calendar/days/2027-02-06/delete")
-    assert app.store.leaves_on(DAY) == {} and app.store.calendar_day(dt.date(2027, 2, 6)) is None
-
-
 def test_settings_page_saves_and_keeps_password(core):
     app, _, _ = core
     c = client(app)
@@ -131,6 +114,7 @@ def test_settings_page_saves_and_keeps_password(core):
             "recognition.unknown_min_frames": "3", "recognition.min_face_px": "60", "recognition.min_det_score": "0.65",
             "recognition.min_sharpness": "40", "recognition.max_yaw": "35", "recognition.max_pitch": "30",
             "google_chat.webhook_url": "https://hook", "google_chat.unknown_batch_minutes": "5",
+            "leave_api.url": "https://hr/api", "leave_api.token": "secret", "leave_api.refresh_minutes": "10",
             "web.public_url": "http://pc:8000", "web.password": "", "retention_days": "30", "healthcheck_url": ""}
     resp = c.post("/settings", data=form, follow_redirects=True)
     assert "Settings saved" in resp.get_data(as_text=True)
@@ -138,6 +122,9 @@ def test_settings_page_saves_and_keeps_password(core):
     assert (cfg.schedule.late_after, cfg.schedule.work_days, cfg.camera.url, cfg.retention_days) == \
         ("09:30", [0, 1, 2, 3, 4, 5], "rtsp://cam", 30)
     assert cfg.camera.enhance_low_light is False and cfg.web.password == ""  # unticked box; empty password kept
+    assert (cfg.leave_api.url, cfg.leave_api.token) == ("https://hr/api", "secret")
+    c.post("/settings", data={**form, "leave_api.token": ""})
+    assert cfg.leave_api.token == "secret"  # an empty token field keeps the saved token
 
     resp = c.post("/settings", data={**form, "schedule.late_after": "07:00"}, follow_redirects=True)
     assert "Not saved" in resp.get_data(as_text=True) and cfg.schedule.late_after == "09:30"
@@ -164,3 +151,31 @@ def test_media_and_cross_site_posts_are_restricted(core):
     assert c.get("/media/crops/../attendance.db").status_code == 404
     assert c.post("/employees", data={"id": "X", "name": "X"}, headers={"Origin": "http://evil.example"}).status_code == 403
     assert app.store.employee("X") is None
+
+
+def test_report_page_and_csv_exports(core):
+    app, clock, _ = core
+    clock.t = at(11, 30)
+    app.store.mark_notice(DAY, "camera_ok", at(9, 0))
+    app.service.on_identified("A", at(10, 20), 0.8, None)
+    c = client(app)
+    page = c.get(f"/report?start={DAY}&end={DAY}").get_data(as_text=True)
+    assert "Late &amp; absence report" in page and "Alice" in page
+    summary = c.get(f"/report/summary.csv?start={DAY}&end={DAY}")
+    text = summary.get_data(as_text=True)
+    assert text.startswith("﻿employee_id,name,work_days") and "A,Alice,1,0,1,20,0,0" in text
+    details = c.get(f"/report/details.csv?start={DAY}&end={DAY}").get_data(as_text=True)
+    assert f"{DAY},A,Alice,late,10:20,20,Camera," in details and f"{DAY},B,Bob,not_seen" in details
+    assert c.get("/report?start=2026-10-14&end=2026-01-01").status_code == 400
+
+
+def test_leave_refresh_button(core):
+    app, clock, _ = core
+    c = client(app)
+    resp = c.post("/leave/sync", follow_redirects=True)
+    assert "Set the HR system API address" in resp.get_data(as_text=True)
+    app.cfg.leave_api.url = "https://hr/api"
+    app.leave_sync._fetch = lambda url, token: {"leaves": [{"employee_id": "A", "start": str(DAY)}]}
+    page = c.post("/leave/sync", data={"back": f"/?day={DAY}"}, follow_redirects=True).get_data(as_text=True)
+    assert "Leave data updated" in page and "On leave: 1" in page
+    assert c.post("/leave/sync", data={"back": "//evil.example"}).headers["Location"] == "/"

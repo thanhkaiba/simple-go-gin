@@ -12,6 +12,7 @@ from . import settings
 from .config import Config
 from .faces import FaceLibrary
 from .gallery import Gallery
+from .leave_api import LeaveSync
 from .live import FrameHealth, LiveStatus
 from .notifier import GoogleChat
 from .service import AttendanceService
@@ -41,6 +42,7 @@ class App:
         self.library = FaceLibrary(cfg, self.store, self.gallery, self.recognizer, self.recognizer_lock,
                                    alert=self.service.alert, now=self.service.now)
         self.service.library = self.library
+        self.leave_sync = LeaveSync(cfg, self.store, self.service.now, lambda d: self.service.window(d).late_after)
         self.live = LiveStatus()
 
     def recognizer(self):
@@ -69,6 +71,17 @@ def _healthcheck(url: str) -> None:
         urllib.request.urlopen(url, timeout=10).read()
     except Exception as exc:
         log.warning("Healthcheck ping failed: %s", exc)
+
+
+def _leave_sync_loop(app: App) -> None:
+    """Refresh holidays and leave from the HR system in the background (network calls can be slow)."""
+    while True:
+        try:
+            if app.leave_sync.due():
+                app.leave_sync.sync()
+        except Exception:
+            log.exception("Leave data update crashed")
+        time.sleep(30)
 
 
 def face_label(app: App, face, candidates) -> tuple[str, tuple[int, int, int]]:
@@ -123,6 +136,8 @@ def run(cfg: Config) -> None:
         threading.Thread(target=lambda: web.run(host=cfg.web.host, port=cfg.web.port, threaded=True),
                          name="web", daemon=True).start()
         log.info("Admin page on %s", cfg.web.public_url)
+
+    threading.Thread(target=_leave_sync_loop, args=(app,), name="leave-sync", daemon=True).start()
 
     recognizer = None
     try:

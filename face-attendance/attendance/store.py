@@ -96,6 +96,7 @@ CREATE TABLE IF NOT EXISTS kv (
 );
 """
 
+# Labels for leave types sent by the HR system; other types are shown as sent.
 LEAVE_KINDS = {"leave": "Leave", "business_trip": "Business trip", "remote": "Working remotely",
                "sick": "Sick", "other": "Other"}
 
@@ -219,13 +220,12 @@ class Store:
         self._exec("UPDATE employees SET name = ?, active = ? WHERE id = ?", (name.strip(), int(active), employee_id))
 
     def delete_employee(self, employee_id: str) -> list[str]:
-        """Remove the employee with their face data and leave; returns reference image paths to delete.
+        """Remove the employee and their face data; returns reference image paths to delete.
         Past attendance records are kept."""
         images = [r["image"] for r in self._all("SELECT DISTINCT image FROM embeddings WHERE employee_id = ? "
                                                 "AND image IS NOT NULL", (employee_id,))]
         with self._lock, self._db:
-            for table in ("embeddings", "leaves"):
-                self._db.execute(f"DELETE FROM {table} WHERE employee_id = ?", (employee_id,))
+            self._db.execute("DELETE FROM embeddings WHERE employee_id = ?", (employee_id,))
             self._db.execute("DELETE FROM employees WHERE id = ?", (employee_id,))
         return images
 
@@ -385,40 +385,27 @@ class Store:
     def resolve_unknown(self, unknown_id: int, status: str, employee_id: str | None) -> None:
         self._exec("UPDATE unknowns SET status = ?, employee_id = ? WHERE id = ?", (status, employee_id, unknown_id))
 
-    # calendar and leave ------------------------------------------------------
-
-    def set_calendar_day(self, day: dt.date, kind: str, note: str) -> None:
-        if kind not in ("holiday", "workday"):
-            raise ValueError("kind must be holiday or workday")
-        self._exec("INSERT INTO calendar (day, kind, note) VALUES (?, ?, ?) "
-                   "ON CONFLICT(day) DO UPDATE SET kind = excluded.kind, note = excluded.note",
-                   (day.isoformat(), kind, note.strip()))
-
-    def delete_calendar_day(self, day: dt.date) -> None:
-        self._exec("DELETE FROM calendar WHERE day = ?", (day.isoformat(),))
+    # holidays and leave (mirrored from the HR system) ---------------------------
 
     def calendar_day(self, day: dt.date) -> tuple[str, str] | None:
         rows = self._all("SELECT kind, note FROM calendar WHERE day = ?", (day.isoformat(),))
         return (rows[0]["kind"], rows[0]["note"]) if rows else None
 
-    def calendar(self, start: dt.date) -> list[tuple[dt.date, str, str]]:
-        rows = self._all("SELECT * FROM calendar WHERE day >= ? ORDER BY day", (start.isoformat(),))
-        return [(dt.date.fromisoformat(r["day"]), r["kind"], r["note"]) for r in rows]
-
-    def add_leave(self, employee_id: str, start: dt.date, end: dt.date, kind: str, note: str) -> int:
-        if end < start:
-            raise ValueError("the end date is before the start date")
-        if kind not in LEAVE_KINDS:
-            raise ValueError("unknown leave type")
-        if not self.employee(employee_id):
-            raise ValueError(f"unknown employee {employee_id}")
-        return self._exec("INSERT INTO leaves (employee_id, start_day, end_day, kind, note) VALUES (?, ?, ?, ?, ?)",
-                          (employee_id, start.isoformat(), end.isoformat(), kind, note.strip())).lastrowid
-
-    def delete_leave(self, leave_id: int) -> Leave | None:
-        found = [x for x in self.leaves() if x.id == leave_id]
-        self._exec("DELETE FROM leaves WHERE id = ?", (leave_id,))
-        return found[0] if found else None
+    def replace_external(self, start: dt.date, end: dt.date, days: list[tuple[dt.date, str, str]],
+                         leaves: list[tuple[str, dt.date, dt.date, str, str]]) -> None:
+        """Replace holidays/work days and leave between start and end with a fresh copy from the HR system.
+        days: (day, 'holiday' | 'workday', note); leaves: (employee_id, start, end, kind, note)."""
+        s, e = start.isoformat(), end.isoformat()
+        with self._lock, self._db:
+            self._db.execute("DELETE FROM calendar WHERE day BETWEEN ? AND ?", (s, e))
+            self._db.execute("DELETE FROM leaves WHERE end_day >= ? AND start_day <= ?", (s, e))
+            self._db.executemany(
+                "INSERT INTO calendar (day, kind, note) VALUES (?, ?, ?) "
+                "ON CONFLICT(day) DO UPDATE SET kind = excluded.kind, note = excluded.note",
+                [(d.isoformat(), kind, note) for d, kind, note in days])
+            self._db.executemany(
+                "INSERT INTO leaves (employee_id, start_day, end_day, kind, note) VALUES (?, ?, ?, ?, ?)",
+                [(emp, a.isoformat(), b.isoformat(), kind, note) for emp, a, b, kind, note in leaves])
 
     def leaves(self, ending_after: dt.date | None = None, employee_id: str | None = None) -> list[Leave]:
         sql, params = "SELECT * FROM leaves WHERE 1 = 1", []

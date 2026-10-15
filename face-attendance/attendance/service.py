@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Callable
 
 import numpy as np
 
+from . import leave_api
 from .config import Config
 from .gallery import Gallery
 from .notifier import GoogleChat
@@ -72,6 +73,9 @@ class DayReport:
     no_photos: list[tuple[str, str]] = field(default_factory=list)
     pending_unknowns: int = 0
     outages: list[tuple[dt.datetime, dt.datetime]] = field(default_factory=list)
+    # True when the camera never worked that day (e.g. before the system was installed or the
+    # computer was off): "not seen" then says nothing about who was absent.
+    no_camera_data: bool = False
 
     @property
     def total(self) -> int:
@@ -80,6 +84,30 @@ class DayReport:
 
 def minutes_late(a: Arrival, w: Window) -> int:
     return int((a.ts - w.late_after).total_seconds() // 60)
+
+
+@dataclass
+class PersonSummary:
+    employee_id: str
+    name: str
+    work_days: int = 0
+    on_time: int = 0
+    late: int = 0
+    late_minutes: int = 0
+    not_seen: int = 0
+    on_leave: int = 0
+
+
+@dataclass
+class PeriodReport:
+    start: dt.date
+    end: dt.date
+    days: list[DayReport]  # work days only
+    people: list[PersonSummary]
+
+    @property
+    def no_data_days(self) -> list[DayReport]:
+        return [d for d in self.days if d.no_camera_data]
 
 
 class AttendanceService:
@@ -97,6 +125,7 @@ class AttendanceService:
         self._last_alive_saved = self._last_alive
         self._last_unknown_notice: dt.datetime | None = None
         self._last_flush: dt.datetime | None = None
+        self._camera_seen_day: dt.date | None = None
 
     @property
     def model_id(self) -> str:
@@ -264,7 +293,10 @@ class AttendanceService:
         rep.on_time.sort(key=lambda a: a.ts)
         rep.late.sort(key=lambda a: a.ts)
         rep.pending_unknowns = len(self.store.unknowns(day))
-        rep.outages = self._outages(day, self.now())
+        now = self.now()
+        rep.outages = self._outages(day, now)
+        rep.no_camera_data = (workday and (day < now.date() or now >= w.start)
+                              and not self.store.notice_sent(day, "camera_ok"))
         return rep
 
     def _outages(self, day: dt.date, now: dt.datetime) -> list[tuple[dt.datetime, dt.datetime]]:
@@ -280,6 +312,9 @@ class AttendanceService:
 
     def _extra_lines(self, rep: DayReport) -> list[str]:
         lines = []
+        stale = leave_api.warning(self.cfg, self.store, self.now())
+        if stale:
+            lines.append(stale)
         if rep.on_leave:
             lines.append("🏖 On leave: " + ", ".join(f"{n} ({k})" for _, n, k in rep.on_leave))
         if rep.no_photos:
@@ -321,6 +356,39 @@ class AttendanceService:
         lines += self._extra_lines(rep)
         lines.append(f"Details: {self._link('/')}")
         return "\n".join(lines)
+
+    def period_report(self, start: dt.date, end: dt.date) -> PeriodReport:
+        """Late and absence totals per employee over a range of days. Today is included once
+        the late time has passed; days that are not work days are skipped."""
+        now = self.now()
+        end = min(end, now.date())
+        if end == now.date() and now < self.window(end).late_after:
+            end -= dt.timedelta(days=1)
+        people: dict[str, PersonSummary] = {}
+        days = []
+        day = start
+        while day <= end:
+            rep = self.report(day)
+            day += dt.timedelta(days=1)
+            if not rep.workday:
+                continue
+            days.append(rep)
+            for a in rep.on_time:
+                p = people.setdefault(a.employee_id, PersonSummary(a.employee_id, a.name))
+                p.work_days, p.on_time = p.work_days + 1, p.on_time + 1
+            for a in rep.late:
+                p = people.setdefault(a.employee_id, PersonSummary(a.employee_id, a.name))
+                p.work_days, p.late = p.work_days + 1, p.late + 1
+                p.late_minutes += minutes_late(a, rep.window)
+            if not rep.no_camera_data:
+                for emp_id, name in rep.not_seen:
+                    p = people.setdefault(emp_id, PersonSummary(emp_id, name))
+                    p.work_days, p.not_seen = p.work_days + 1, p.not_seen + 1
+            for emp_id, name, _ in rep.on_leave:
+                p = people.setdefault(emp_id, PersonSummary(emp_id, name))
+                p.on_leave += 1
+        ranked = sorted(people.values(), key=lambda p: (-(p.late + p.not_seen), -p.late_minutes, p.name))
+        return PeriodReport(start, end, days, ranked)
 
     def unknown_text(self, unknowns) -> str:
         times = ", ".join(self._local(u.ts).strftime("%H:%M") for u in unknowns)
@@ -405,6 +473,9 @@ class AttendanceService:
             if now - ref > GAP:
                 self.store.add_outage(day, ref, now)
             self._set_alive(now, force=now - ref > GAP)
+            if self._camera_seen_day != day:  # remember that the camera worked on this day
+                self.store.mark_notice(day, "camera_ok", now)
+                self._camera_seen_day = day
 
     def _set_alive(self, ts: dt.datetime, force: bool = False) -> None:
         self._last_alive = ts

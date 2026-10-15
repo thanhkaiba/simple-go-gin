@@ -32,7 +32,7 @@
       {% if n == 0 %}<span class="bad">none: cannot be recognised</span>
       {% elif n < 5 %}<span class="late">{{ n }} (add more)</span>{% else %}{{ n }}{% endif %}</td>
     <td>{% if not p.active %}<span class="pill muted">inactive</span>
-        {% elif on_leave.get(p.id) %}<span class="pill muted">{{ LEAVE_KINDS.get(on_leave[p.id]) }} today</span>
+        {% elif on_leave.get(p.id) %}<span class="pill muted">{{ leave_label(on_leave[p.id]) }} today</span>
         {% else %}<span class="pill ok">active</span>{% endif %}</td>
   </tr>
   {% else %}

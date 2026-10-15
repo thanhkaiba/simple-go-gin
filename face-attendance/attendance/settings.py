@@ -20,6 +20,7 @@ EDITABLE: dict[str, list[str]] = {
     "recognition": ["accept_score", "min_margin", "votes_required", "min_face_px", "min_det_score",
                     "min_sharpness", "max_yaw", "max_pitch", "unknown_min_frames"],
     "google_chat": ["webhook_url", "notify_late_arrivals", "unknown_batch_minutes"],
+    "leave_api": ["url", "token", "refresh_minutes"],
     "web": ["public_url", "password"],
     "": ["retention_days", "healthcheck_url"],
 }

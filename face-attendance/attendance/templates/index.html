@@ -27,7 +27,17 @@
   </form>
 </div>
 
-{% if rep.day_note %}<div class="warn">{{ rep.day_note }}</div>{% endif %}
+{% if rep.day_note %}<div class="warn">{{ rep.day_note }} (from the HR system)</div>{% endif %}
+{% if leave.enabled %}
+  <form class="inline muted" method="post" action="{{ url_for('leave_sync') }}">
+    <input type="hidden" name="back" value="{{ request.full_path }}">
+    Holidays &amp; leave from the HR system{% if leave.last_success %}, updated {{ leave.last_success.strftime('%Y-%m-%d %H:%M') }}{% endif %}.
+    <button>Refresh now</button>
+  </form>
+  {% if leave.warning %}<div class="warn">{{ leave.warning }}{% if leave.message and not leave.ok %} ({{ leave.message }}){% endif %}</div>{% endif %}
+{% else %}
+  <p class="muted">No HR system connected: leave and holidays are not taken into account (Settings → HR system).</p>
+{% endif %}
 {% if not rep.workday %}<p class="muted">Not a work day: no notifications are sent.</p>{% endif %}
 
 <p class="stats">
@@ -40,6 +50,7 @@
 <p class="muted">On time if first seen before {{ rep.window.late_after.strftime('%H:%M') }}.
   Camera runs {{ rep.window.start.strftime('%H:%M') }}–{{ rep.window.end.strftime('%H:%M') }}.
   Use the buttons to fix anything the camera got wrong; every change is kept in the change log.</p>
+{% if rep.no_camera_data %}<div class="warn">⚠️ The camera did not work at all on this day, so "not seen" does not mean absent.</div>{% endif %}
 {% for a, b in rep.outages %}<div class="warn">⚠️ Camera/system was down {{ a.strftime('%H:%M') }}–{{ b.strftime('%H:%M') }}. Arrivals in this period may be missing.</div>{% endfor %}
 {% if rep.no_photos %}<div class="warn">⚠️ No reference photos, cannot be recognised:
   {% for id, name in rep.no_photos %}<a href="{{ url_for('employee', employee_id=id) }}">{{ name }}</a>{{ ', ' if not loop.last }}{% endfor %}</div>{% endif %}
