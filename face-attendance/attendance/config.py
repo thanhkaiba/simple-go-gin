@@ -178,7 +178,7 @@ class WebConfig:
 
 @dataclass
 class UpdatesConfig:
-    enabled: bool = True     # packaged program only: install new releases by itself, outside camera hours
+    enabled: bool = False    # packaged program only: install new releases by itself, outside camera hours
     check_hours: float = 6
 
 

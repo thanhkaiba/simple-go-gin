@@ -78,9 +78,9 @@ Download the installer for your computer from the newest [release](https://githu
 
 The program starts at login, restarts itself if it stops, and opens the **Setup** page the first time. Opening it again just opens the page.
 
-**Updates are automatic.** Every 6 hours the program looks for a newer release, downloads it into the data folder and, outside camera hours, restarts into it. *Settings → Access → Updates* shows the version and has *Check now*; untick the box to stop automatic updates. Data and settings are kept. Coming from the install script below: install over it; it uses the same data folder and stops the old copy.
+**Automatic updates are off by default.** Tick the box in *Settings → Access → Updates* and every 6 hours the program looks for a newer release, downloads it into the data folder and, outside camera hours, restarts into it. That page shows the version and has *Check now*. Data and settings are kept. Coming from the install script below: install over it; it uses the same data folder and stops the old copy.
 
-To publish a new version: change `__version__` in `attendance/__init__.py` if you like, then push a tag (`git tag v1.2.0 && git push origin v1.2.0`). GitHub Actions (`.github/workflows/build.yml`) builds and tests the packages on Windows, macOS and Linux and publishes the release; installed copies update within hours. Build one locally with `pip install . pyinstaller certifi && pyinstaller packaging/face-attendance.spec`.
+To publish a new version: change `__version__` in `attendance/__init__.py` if you like, then push a tag (`git tag v1.2.0 && git push origin v1.2.0`). GitHub Actions (`.github/workflows/build.yml`) builds and tests the packages on Windows, macOS and Linux and publishes the release; installed copies with automatic updates on pick it up within hours. Build one locally with `pip install . pyinstaller certifi && pyinstaller packaging/face-attendance.spec`.
 
 ### Install script (from the source folder)
 
