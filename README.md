@@ -2,25 +2,20 @@
 
 A computer in the office watches the door camera, recognises employees **locally** (no cloud), and posts to **Google Chat** who is late and who did not come. Holidays and leave come from the HR system. Windows, macOS and Linux.
 
-```
-Camera (RTSP) ─► this computer: faces → match → arrival time ─► Google Chat + admin page
-                                      └─ unsure → "Review" page: you say who it is, the camera learns
-HR system API ─► holidays, leave
+```mermaid
+flowchart LR
+  cam[Door camera<br>RTSP] --> pc[Office computer<br>detect · match]
+  hr[HR system API<br>holidays · leave] --> pc
+  pc -->|confident| arr[Arrival time]
+  pc -->|unsure| rev[Review page<br>you name the face,<br>the camera learns it]
+  rev --> arr
+  arr --> chat[Google Chat<br>late · not seen · summary]
+  arr --> web[Admin page<br>today · reports · people]
 ```
 
 ## Install
 
-Download the newest [release](https://github.com/thanhkaiba/simple-go-gin/releases/latest) and run it. It brings Python and every library; the face models (about 300 MB) download on the first start. No admin rights needed.
-
-| | Windows | macOS | Linux |
-|---|---|---|---|
-| File | `FaceAttendance-Setup-<version>.exe` | `…-macos-arm64.dmg` (Apple chip) / `…-macos-x64.dmg` (Intel) | `…-linux-x64-installer.tar.gz` |
-| Install | run it (SmartScreen: *More info → Run anyway*) | drag to *Applications*, right-click → *Open* the first time | unpack, `./install.sh` |
-| Data | `%LOCALAPPDATA%\FaceAttendance` | `~/Library/Application Support/FaceAttendance` | `~/.local/share/face-attendance` |
-
-The program starts at login, restarts itself if it stops, and opens the **Setup** page the first time: camera address (checked as you type), working hours, Google Chat webhook, password, employees. Updates: *Settings → Access → Updates*.
-
-From source instead: `Install.bat` / `Install.command` in this folder, or `pip install -r requirements.txt && python -m attendance download-models && python -m attendance run` (Python 3.10+), then open http://localhost:8000. Details in [docs/install.md](docs/install.md).
+Download the installer for your computer from the newest [release](https://github.com/thanhkaiba/simple-go-gin/releases/latest) and run it. It starts at login and opens the **Setup** page the first time (camera, hours, Google Chat, password, people). From source: `Install.bat` / `Install.command`. Everything else is in [docs/install.md](docs/install.md).
 
 ## How it decides
 
