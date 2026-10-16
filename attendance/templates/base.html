@@ -50,6 +50,10 @@
   {% endfor %}
 </div>
 <main>
+  {% if translocated %}
+  <div class="alert warn"><span>macOS is running Face Attendance from a temporary copy because it was opened straight from
+    Downloads, so it cannot start at login. Quit it, drag <b>FaceAttendance</b> into <b>Applications</b> and open it from there.</span></div>
+  {% endif %}
   {% if models_status %}
   <div class="alert warn" id="models-status"><span class="spin"></span><span>{{ models_status }} · faces are recognised once done; everything else already works.</span></div>
   {% endif %}

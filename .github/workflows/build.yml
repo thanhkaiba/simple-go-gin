@@ -20,8 +20,8 @@ jobs:
       matrix:
         include:
           - { os: windows-latest, platform: windows-x64 }
-          - { os: macos-latest, platform: macos-arm64 }
-          - { os: macos-15-intel, platform: macos-x64 }
+          - { os: macos-latest, platform: macos-arm64, arch: arm64 }
+          - { os: macos-15-intel, platform: macos-x64, arch: x86_64 }
           - { os: ubuntu-22.04, platform: linux-x64 }  # older glibc: runs on more Linux versions
     runs-on: ${{ matrix.os }}
     defaults:
@@ -45,11 +45,33 @@ jobs:
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
           echo "Building $VERSION"
 
-      - name: Build
+      - name: Install the libraries (Windows, Linux)
+        if: runner.os != 'macOS'
         run: |
           python -m pip install --upgrade pip
           pip install . pyinstaller certifi
-          pyinstaller --noconfirm packaging/face-attendance.spec
+
+      - name: Install the libraries (macOS, for macOS 12 and newer)
+        if: runner.os == 'macOS'
+        run: |
+          # The newest numpy, OpenCV and onnxruntime wheels are built for macOS 13/14 and use
+          # Accelerate symbols older systems lack: a package made from them dies on start on a
+          # macOS 12 Mac ("Symbol not found: _cblas_...$NEWLAPACK$ILP64"). Resolve the libraries
+          # for macOS 12 instead (numpy with OpenBLAS, OpenCV 4.10, onnxruntime 1.19).
+          python -m pip install --upgrade pip
+          pip download --only-binary=:all: --platform "macosx_12_0_${{ matrix.arch }}" \
+            --python-version 3.12 --implementation cp -d wheels -r requirements.txt
+          pip install --no-index --find-links wheels -r requirements.txt
+          pip install --no-deps .
+          pip install pyinstaller certifi
+          pip list --format=columns | grep -i -E "numpy|opencv|onnxruntime"
+
+      - name: Build
+        run: pyinstaller --noconfirm packaging/face-attendance.spec
+
+      - name: Check that every library runs on macOS 12 (macOS)
+        if: runner.os == 'macOS'
+        run: python packaging/macos_min_version.py dist/FaceAttendance.app 12
 
       - name: Test the package (download the models, load them, render the pages)
         run: |

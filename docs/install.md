@@ -7,7 +7,7 @@ Download the installer for your computer from the newest [release](https://githu
 | | Windows | macOS | Linux |
 |---|---|---|---|
 | Download | `FaceAttendance-Setup-<version>.exe` | `FaceAttendance-<version>-macos-arm64.dmg` (Apple chip) or `-macos-x64.dmg` (Intel) | `FaceAttendance-<version>-linux-x64-installer.tar.gz` |
-| Install | run it (SmartScreen: *More info → Run anyway*) | open the .dmg, drag *FaceAttendance* to *Applications*, then right-click it → *Open* the first time | unpack, run `./install.sh` |
+| Install | run it (SmartScreen: *More info → Run anyway*) | open the .dmg, drag *FaceAttendance* to *Applications*, then right-click it there → *Open* the first time. Needs macOS 12 or newer. Always open it from Applications: opened from Downloads, macOS runs a temporary copy that cannot start at login (the page then says so) | unpack, run `./install.sh` |
 | Settings, data, models | `%LOCALAPPDATA%\FaceAttendance` | `~/Library/Application Support/FaceAttendance` | `~/.local/share/face-attendance` |
 | Remove | *Settings → Apps → Face Attendance* | run `/Applications/FaceAttendance.app/Contents/MacOS/FaceAttendance uninstall` in Terminal, then delete the app | `./uninstall.sh` |
 

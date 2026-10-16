@@ -41,6 +41,25 @@ def frozen() -> bool:
     return getattr(sys, "frozen", False)
 
 
+def translocated() -> bool:
+    """macOS runs an app opened straight from Downloads (still quarantined) from a temporary copy
+    under /private/var/folders/.../AppTranslocation. A login entry pointing there would break, so
+    the app must be moved to Applications first; the admin page says so."""
+    return sys.platform == "darwin" and "/AppTranslocation/" in sys.executable
+
+
+def pid_alive(pid: int) -> bool:
+    if sys.platform == "win32":
+        return True  # os.kill(pid, 0) would terminate the process on Windows; the lock handles it
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
 def app_home() -> Path:
     """Data folder: config.yaml, models, database, photos. Kept when the program is updated or removed."""
     if os.environ.get("FACE_ATTENDANCE_HOME"):
@@ -193,6 +212,17 @@ class Instance:
     def __init__(self, home: Path):
         self.pid_file = home / "running.pid"
         self._file = open(home / "running.lock", "a+")
+        self.clear_stale()
+
+    def clear_stale(self) -> None:
+        """A pid file left by a copy that died (power cut, kill) must not make `stop` or a check
+        believe it still runs. The lock itself is released by the OS when a process ends."""
+        try:
+            pids = [int(p) for p in self.pid_file.read_text().split()]
+        except (OSError, ValueError):
+            return
+        if pids and not any(pid_alive(p) for p in pids):
+            self.pid_file.unlink(missing_ok=True)
 
     def acquire(self, wait_s: float = 0) -> bool:
         deadline = time.time() + wait_s
@@ -341,7 +371,8 @@ def main(argv: list[str] | None = None) -> None:
         return
     # The login entry starts the installed program (which hands over to updates), never an update itself;
     # nor with a custom data folder, which the entry would not carry.
-    if frozen() and not os.environ.get("FACE_ATTENDANCE_HOME") and home / "versions" not in Path(sys.executable).parents:
+    if (frozen() and not os.environ.get("FACE_ATTENDANCE_HOME") and not translocated()
+            and home / "versions" not in Path(sys.executable).parents):
         enable_autostart()
     if not background:
         threading.Thread(target=open_when_ready, args=(url + ("/setup" if first_start else ""),), daemon=True).start()

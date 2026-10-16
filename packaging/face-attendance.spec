@@ -45,4 +45,5 @@ coll = COLLECT(exe, a.binaries, a.datas, name="FaceAttendance")
 if sys.platform == "darwin":
     app = BUNDLE(coll, name="FaceAttendance.app", bundle_identifier="com.faceattendance.app",
                  info_plist={"CFBundleDisplayName": "Face Attendance", "LSUIElement": True,
+                             "LSMinimumSystemVersion": "12.0",  # the libraries are resolved for macOS 12 (build.yml)
                              "NSCameraUsageDescription": "Not used: the program reads a network camera."})

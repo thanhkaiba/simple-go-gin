@@ -95,6 +95,7 @@ def create_app(core: "App") -> Flask:
     def common():
         return {"pending": store.pending_group_count(), "nav": request.endpoint, "SOURCES": SOURCES,
                 "setup_open": first_setup.open_count(core), "models_status": core.live.models,
+                "translocated": sys.platform == "darwin" and "/AppTranslocation/" in sys.executable,
                 "leave_label": lambda kind: LEAVE_KINDS.get(kind, kind), "WEEKDAYS": WEEKDAYS}
 
     def leave_status() -> dict:
