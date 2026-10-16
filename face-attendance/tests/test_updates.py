@@ -147,3 +147,14 @@ def test_autostart_entry(tmp_path, monkeypatch):
     assert "--background" in launcher.autostart_path().read_text()
     launcher.disable_autostart()
     assert not launcher.autostart_path().exists()
+
+
+def test_mac_app_opened_from_finder_runs_as_a_separate_process(tmp_path, monkeypatch):
+    started = []
+    monkeypatch.setenv("FACE_ATTENDANCE_HOME", str(tmp_path))
+    monkeypatch.setattr(sys, "platform", "darwin")
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(launcher.subprocess, "Popen", lambda cmd, **kw: started.append(cmd))
+    monkeypatch.setattr(launcher, "supervise", lambda *a: pytest.fail("the Finder-started process must end"))
+    launcher.main([])
+    assert started == [[sys.executable, "--detached"]]

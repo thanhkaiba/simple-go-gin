@@ -294,7 +294,7 @@ def hand_over(home: Path, argv: list[str]) -> bool:
     newer = newer_installed(home) if frozen() else None
     if newer is None:
         return False
-    if argv and argv[0] != "--background":  # a command: run it there and wait for it
+    if argv and argv[0] not in ("--background", "--detached"):  # a command: run it there and wait for it
         sys.exit(subprocess.call([str(newer), *argv], creationflags=NO_WINDOW))
     subprocess.Popen([str(newer), *argv], creationflags=NO_WINDOW, start_new_session=True,
                      stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -306,6 +306,12 @@ def main(argv: list[str] | None = None) -> None:
     home = app_home()
     if hand_over(home, argv):
         return
+    if sys.platform == "darwin" and frozen() and not argv:
+        # Opened from Finder: macOS expects the app to answer its events, which this one (no window) never
+        # does, so it shows as "Not Responding" and ignores a second double-click. Run as a separate process.
+        subprocess.Popen([sys.executable, "--detached"], start_new_session=True,
+                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return
     if argv and argv[0] == "stop":
         print("Stopped." if stop(home) else "It was not running.")
         return
@@ -314,7 +320,7 @@ def main(argv: list[str] | None = None) -> None:
             stop(home)
         disable_autostart()
         return
-    if argv and argv[0] not in ("--background",):
+    if argv and argv[0] not in ("--background", "--detached"):
         # A command for the attendance program itself (run, download-models, report, ...).
         if "--config" not in argv:
             argv = ["--config", str(write_config(home)), *argv]
