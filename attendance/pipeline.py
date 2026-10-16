@@ -13,11 +13,12 @@ from .config import Config
 from .faces import FaceLibrary
 from .gallery import Gallery
 from .leave_api import LeaveSync
+from .evidence import evidence_digest
 from .live import FrameHealth, LiveStatus
 from .posecal import PoseCalibration
 from .notifier import GoogleChat
 from .service import AttendanceService
-from .store import Store, body_photo
+from .store import Store, body_photo, scene_photo
 from .tracker import Decision, vote_for
 
 log = logging.getLogger(__name__)
@@ -71,7 +72,36 @@ def save_crop(app: App, decision: Decision, ts: dt.datetime) -> str | None:
     path.write_bytes(encode_jpeg(decision.crop))
     if decision.body is not None:
         (app.data_dir / body_photo(rel.as_posix())).write_bytes(encode_jpeg(decision.body))
+    if decision.scene is not None:
+        if decision.kind == "identified":
+            label = f"{app.store.employees().get(who, who)}  match {decision.score or 0:.2f}"
+        else:
+            label = "unidentified face"
+        frame, bbox = decision.scene
+        (app.data_dir / scene_photo(rel.as_posix())).write_bytes(
+            render_scene(frame, bbox, f"{ts:%Y-%m-%d %H:%M:%S} ({ts:%z})  {label}"))
     return rel.as_posix()
+
+
+def render_scene(frame, bbox, label: str, max_width: int = 1280) -> bytes:
+    """The whole camera picture with the face boxed and `label` (time, name) burned in, so the
+    picture is evidence on its own, without the database."""
+    import cv2
+
+    from .faces import encode_jpeg
+
+    canvas = frame.copy()
+    h, w = canvas.shape[:2]
+    scale = min(1.0, max_width / w)
+    if scale < 1:
+        canvas = cv2.resize(canvas, (max_width, int(h * scale)))
+    x1, y1, x2, y2 = (int(v * scale) for v in bbox)
+    cv2.rectangle(canvas, (x1, y1), (x2, y2), (0, 215, 255), 2)
+    size = max(0.5, canvas.shape[1] / 1600)
+    (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, size, 1)
+    cv2.rectangle(canvas, (0, 0), (tw + 16, th + 16), (0, 0, 0), -1)
+    cv2.putText(canvas, label, (8, th + 8), cv2.FONT_HERSHEY_SIMPLEX, size, (255, 255, 255), 1, cv2.LINE_AA)
+    return encode_jpeg(canvas)
 
 
 def _healthcheck(url: str) -> None:
@@ -216,11 +246,12 @@ def run(cfg: Config) -> None:
         for d in decisions:
             ts = d.ts.astimezone(service.tz)
             image = save_crop(app, d, ts)
+            digest = evidence_digest(app.data_dir, image)
             if d.kind == "identified":
-                service.on_identified(d.employee_id, ts, d.score, image, d.embedding)
+                service.on_identified(d.employee_id, ts, d.score, image, d.embedding, digest)
                 live.last_identified = f"{app.store.employees().get(d.employee_id, d.employee_id)} at {ts:%H:%M:%S}"
             else:
-                service.on_unknown(ts, image, d.embedding, d.employee_id, d.score)
+                service.on_unknown(ts, image, d.embedding, d.employee_id, d.score, digest)
 
     log.info("Running; processing window %s-%s", cfg.schedule.window_start, cfg.schedule.window_end)
     while True:

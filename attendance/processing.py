@@ -14,6 +14,15 @@ from .tracker import Decision, FaceTracker, Observation, clear_match
 log = logging.getLogger(__name__)
 
 
+def _scene(whole, bbox):
+    """(whole frame, face box in whole-frame pixels) for the evidence picture, or None."""
+    if whole is None:
+        return None
+    frame, (ox, oy) = whole
+    x1, y1, x2, y2 = bbox
+    return frame, (float(x1 + ox), float(y1 + oy), float(x2 + ox), float(y2 + oy))
+
+
 class FrameProcessor:
     def __init__(self, app, mode: str | None = None):
         """`mode` overrides cfg.tracking.mode (the benchmark runs both); otherwise the setting is
@@ -53,16 +62,18 @@ class FrameProcessor:
         area = self.cfg.camera.area_box(frame.shape)
         if area is not None:
             x0, y0, x1, y1 = area
-            decisions, matched, people = self._process(frame[y0:y1, x0:x1], ts, record)
+            decisions, matched, people = self._process(frame[y0:y1, x0:x1], ts, record, (frame, (x0, y0)))
             shift = np.array([x0, y0, x0, y0], dtype=np.float32)
             matched = [(dataclasses.replace(f, bbox=tuple(float(v) for v in np.add(f.bbox, shift)),
                                             landmarks=None if f.landmarks is None else f.landmarks + shift[:2]), c, pid)
                        for f, c, pid in matched]
             people = [dataclasses.replace(p, box=p.box + shift) for p in people]
             return decisions, matched, people
-        return self._process(frame, ts, record)
+        return self._process(frame, ts, record, (frame, (0, 0)))
 
-    def _process(self, frame: np.ndarray, ts: dt.datetime, record: bool):
+    def _process(self, frame: np.ndarray, ts: dt.datetime, record: bool, whole=None):
+        """`whole`: (the whole camera frame, where `frame` sits in it), kept with each observation so
+        the evidence picture of a sighting shows the entire scene."""
         regions, people, followed, full_frame = (), [], None, True
         detector = self._detector_or_none() if self.mode == "person" else None
         if detector is not None:
@@ -84,7 +95,8 @@ class FrameProcessor:
         decisions = []
         if record:
             observations = [Observation(f.bbox, f.embedding, c, f.quality_ok, f.quality, crop_face(frame, f.bbox), pid,
-                                        f.size_ok, crop_body(frame, f.bbox)) for f, c, pid in matched]
+                                        f.size_ok, crop_body(frame, f.bbox), _scene(whole, f.bbox))
+                            for f, c, pid in matched]
             decisions = self.face_tracker.update(observations, ts, followed)
         self.people = people
         return decisions, matched, people

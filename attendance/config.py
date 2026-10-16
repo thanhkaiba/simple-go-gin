@@ -196,6 +196,9 @@ class Config:
     employees_file: str = "employees.csv"  # imported once, when the database has no employees yet
     healthcheck_url: str = ""
     retention_days: int = 90  # face photos of arrivals and unknown faces are deleted after this
+    # Snapshots of a day on which someone was late are kept this long instead, as evidence in case
+    # the person disputes it (never shorter than retention_days).
+    late_evidence_days: int = 365
     schedule: ScheduleConfig = field(default_factory=ScheduleConfig)
     camera: CameraConfig = field(default_factory=CameraConfig)
     recognition: RecognitionConfig = field(default_factory=RecognitionConfig)
@@ -241,6 +244,8 @@ class Config:
             raise ValueError("det_size must be at least 160 and, for insightface, a multiple of 32 (e.g. 640, 960)")
         if self.retention_days < 1:
             raise ValueError("retention_days must be at least 1")
+        if self.late_evidence_days < 1:
+            raise ValueError("late_evidence_days must be at least 1")
         lm = self.late_message
         if str(lm.send_at).strip():
             lm.send_at = parse_clock(lm.send_at).strftime("%H:%M")

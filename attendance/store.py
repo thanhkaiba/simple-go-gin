@@ -9,6 +9,7 @@ import csv
 import datetime as dt
 import io
 import json
+import re
 import sqlite3
 import threading
 from dataclasses import dataclass
@@ -56,7 +57,8 @@ CREATE TABLE IF NOT EXISTS sightings (
     status TEXT NOT NULL DEFAULT 'ok',  -- ok or rejected
     camera_id TEXT,  -- who the camera said it was (kept when an admin moves the sighting)
     model TEXT,  -- the face embedding, so a sighting moved to the right person can be learned
-    vector BLOB
+    vector BLOB,
+    sha256 TEXT  -- of the snapshot files at capture time, to show later that they are unchanged
 );
 CREATE INDEX IF NOT EXISTS sightings_day ON sightings(day, employee_id);
 CREATE TABLE IF NOT EXISTS unknowns (
@@ -72,7 +74,8 @@ CREATE TABLE IF NOT EXISTS unknowns (
     employee_id TEXT,
     notified INTEGER NOT NULL DEFAULT 0,
     group_id INTEGER,  -- unknown faces that look like the same person share a group
-    ignored_day TEXT   -- set when the admin ignored the face; ignoring only lasts that day
+    ignored_day TEXT,  -- set when the admin ignored the face; ignoring only lasts that day
+    sha256 TEXT
 );
 CREATE TABLE IF NOT EXISTS calendar (
     day TEXT PRIMARY KEY,
@@ -153,6 +156,7 @@ class Sighting:
     camera_id: str | None = None
     model: str | None = None
     vector: np.ndarray | None = None
+    sha256: str | None = None
 
 
 @dataclass
@@ -167,6 +171,7 @@ class Unknown:
     status: str
     employee_id: str | None
     group_id: int = 0
+    sha256: str | None = None
 
 
 @dataclass
@@ -208,6 +213,11 @@ def body_photo(image: str) -> str:
     return image[:-len(".jpg")] + "_body.jpg"
 
 
+def scene_photo(image: str) -> str:
+    """Where the whole camera picture (time stamp burned in, face boxed) is kept: the evidence."""
+    return image[:-len(".jpg")] + "_scene.jpg"
+
+
 def _vec(blob) -> np.ndarray | None:
     return None if blob is None else np.frombuffer(blob, dtype=np.float32)
 
@@ -232,9 +242,9 @@ class Store:
 
     def _migrate(self) -> None:
         """Add columns introduced after a database was created."""
-        added = {"embeddings": [("image", "TEXT")], "unknowns": [("group_id", "INTEGER"), ("ignored_day", "TEXT")],
+        added = {"embeddings": [("image", "TEXT")], "unknowns": [("group_id", "INTEGER"), ("ignored_day", "TEXT"), ("sha256", "TEXT")],
                  "employees": [("chat_user", "TEXT NOT NULL DEFAULT ''"), ("exempt", "INTEGER NOT NULL DEFAULT 0")],
-                 "sightings": [("camera_id", "TEXT"), ("model", "TEXT"), ("vector", "BLOB")]}
+                 "sightings": [("camera_id", "TEXT"), ("model", "TEXT"), ("vector", "BLOB"), ("sha256", "TEXT")]}
         for table, columns in added.items():
             have = {r["name"] for r in self._db.execute(f"PRAGMA table_info({table})")}
             for name, kind in columns:
@@ -385,7 +395,7 @@ class Store:
     def _sighting(self, r) -> Sighting:
         return Sighting(r["id"], dt.date.fromisoformat(r["day"]), r["employee_id"], dt.datetime.fromisoformat(r["ts"]),
                         r["source"], r["score"], r["image"], r["status"], r["camera_id"], r["model"],
-                        _vec(r["vector"]))
+                        _vec(r["vector"]), r["sha256"])
 
     def _recompute(self, day: dt.date, employee_id: str) -> None:
         """The arrival is the earliest valid sighting, unless an admin typed a time in: the latest
@@ -411,15 +421,15 @@ class Store:
 
     def record_checkin(self, day: dt.date, employee_id: str, ts: dt.datetime, source: str,
                        score: float | None, image: str | None, model: str | None = None,
-                       vector: np.ndarray | None = None) -> str:
+                       vector: np.ndarray | None = None, sha256: str | None = None) -> str:
         """Add a sighting. Returns "new" (first arrival of the day), "earlier" (the arrival moved
         earlier) or "unchanged"."""
         with self._lock, self._db:
             before = self._arrival_ts(day, employee_id)
-            self._db.execute("INSERT INTO sightings (day, employee_id, ts, source, score, image, camera_id, model, vector) "
-                             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            self._db.execute("INSERT INTO sightings (day, employee_id, ts, source, score, image, camera_id, model, "
+                             "vector, sha256) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                              (day.isoformat(), employee_id, ts.isoformat(), source, score, image,
-                              employee_id if source == "camera" else None, model, _blob(vector)))
+                              employee_id if source == "camera" else None, model, _blob(vector), sha256))
             self._recompute(day, employee_id)
             after = self._arrival_ts(day, employee_id)
         if before is None:
@@ -529,15 +539,15 @@ class Store:
 
     def add_unknown(self, day: dt.date, ts: dt.datetime, image: str | None, model: str | None,
                     vector: np.ndarray | None, guess_id: str | None, guess_score: float | None,
-                    group_id: int | None = None, ignored: bool = False) -> int:
+                    group_id: int | None = None, ignored: bool = False, sha256: str | None = None) -> int:
         """Store an unidentified face; without a group it starts a new group of its own.
         `ignored` stores it as already ignored for the day (its group was ignored earlier today)."""
         with self._lock, self._db:
             cur = self._db.execute(
                 "INSERT INTO unknowns (day, ts, image, model, vector, guess_id, guess_score, group_id, status, "
-                "ignored_day) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "ignored_day, sha256) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (day.isoformat(), ts.isoformat(), image, model, _blob(vector), guess_id, guess_score, group_id,
-                 "ignored" if ignored else "pending", day.isoformat() if ignored else None),
+                 "ignored" if ignored else "pending", day.isoformat() if ignored else None, sha256),
             )
             if group_id is None:
                 self._db.execute("UPDATE unknowns SET group_id = id WHERE id = ?", (cur.lastrowid,))
@@ -545,7 +555,8 @@ class Store:
 
     def _unknown(self, r) -> Unknown:
         return Unknown(r["id"], dt.datetime.fromisoformat(r["ts"]), r["image"], r["model"], _vec(r["vector"]),
-                       r["guess_id"], r["guess_score"], r["status"], r["employee_id"], r["group_id"] or r["id"])
+                       r["guess_id"], r["guess_score"], r["status"], r["employee_id"], r["group_id"] or r["id"],
+                       r["sha256"])
 
     def pending_groups(self) -> list[list[Unknown]]:
         """Pending unknown faces grouped by person, most recently seen group first."""
@@ -664,25 +675,46 @@ class Store:
         self._exec("INSERT INTO audit (ts, user, action, details) VALUES (?, ?, ?, ?)",
                    (now.isoformat(), user, action, details))
 
+    def audit_about(self, day: dt.date, *names: str, limit: int = 200) -> list[tuple[dt.datetime, str, str, str]]:
+        """Change log entries that mention this day and one of `names` (a person's name or id)."""
+        rows = self._all("SELECT * FROM audit WHERE details LIKE ? ORDER BY id DESC LIMIT ?",
+                         (f"%{day.isoformat()}%", limit))
+        words = [re.compile(rf"(?<!\w){re.escape(n)}(?!\w)") for n in names if n]
+        return [(dt.datetime.fromisoformat(r["ts"]), r["user"], r["action"], r["details"]) for r in rows
+                if any(w.search(r["details"]) for w in words)]
+
     def audit(self, limit: int = 300) -> list[tuple[dt.datetime, str, str, str]]:
         rows = self._all("SELECT * FROM audit ORDER BY id DESC LIMIT ?", (limit,))
         return [(dt.datetime.fromisoformat(r["ts"]), r["user"], r["action"], r["details"]) for r in rows]
 
     # retention ---------------------------------------------------------------
 
-    def expire_snapshots(self, before: dt.date) -> list[str]:
-        """Forget camera snapshots taken before `before`; returns their image paths for deletion.
-        Unknown faces from that period are removed entirely."""
+    def expire_snapshots(self, before: dt.date, keep: set[tuple[dt.date, str]] = frozenset()) -> list[str]:
+        """Forget camera snapshots taken before `before`, except those of the (day, employee) pairs in
+        `keep` (days someone was late are kept longer, as evidence). Unknown faces from that period
+        are removed entirely. Returns the image paths nothing refers to any more, for deletion."""
         with self._lock, self._db:
             day = before.isoformat()
-            images = [r["image"] for r in self._db.execute(
-                "SELECT image FROM checkins WHERE day < ? AND image LIKE 'crops/%' "
-                "UNION SELECT image FROM sightings WHERE day < ? AND image LIKE 'crops/%' "
-                "UNION SELECT image FROM unknowns WHERE day < ? AND image IS NOT NULL", (day, day, day))]
-            self._db.execute("UPDATE checkins SET image = NULL WHERE day < ? AND image LIKE 'crops/%'", (day,))
-            self._db.execute("UPDATE sightings SET image = NULL WHERE day < ? AND image LIKE 'crops/%'", (day,))
+            images: set[str] = set()
+            rows = self._db.execute("SELECT id, day, employee_id, image FROM sightings WHERE day < ? "
+                                    "AND image LIKE 'crops/%'", (day,)).fetchall()
+            expired = [r for r in rows if (dt.date.fromisoformat(r["day"]), r["employee_id"]) not in keep]
+            images |= {r["image"] for r in expired}
+            self._db.executemany("UPDATE sightings SET image = NULL WHERE id = ?", [(r["id"],) for r in expired])
+            rows = self._db.execute("SELECT day, employee_id, image FROM checkins WHERE day < ? "
+                                    "AND image LIKE 'crops/%'", (day,)).fetchall()
+            expired = [r for r in rows if (dt.date.fromisoformat(r["day"]), r["employee_id"]) not in keep]
+            images |= {r["image"] for r in expired}
+            self._db.executemany("UPDATE checkins SET image = NULL WHERE day = ? AND employee_id = ?",
+                                 [(r["day"], r["employee_id"]) for r in expired])
+            images |= {r["image"] for r in self._db.execute(
+                "SELECT image FROM unknowns WHERE day < ? AND image IS NOT NULL", (day,))}
             self._db.execute("DELETE FROM unknowns WHERE day < ?", (day,))
-        return images
+            # A file still used by a kept sighting (a confirmed face that became an arrival) stays.
+            used = {r["image"] for r in self._db.execute(
+                "SELECT image FROM sightings WHERE image IS NOT NULL UNION SELECT image FROM checkins "
+                "WHERE image IS NOT NULL UNION SELECT image FROM unknowns WHERE image IS NOT NULL")}
+        return sorted(images - used)
 
     # notices, outages, outbox, kv -----------------------------------------
 

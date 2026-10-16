@@ -127,6 +127,7 @@
     </div>
     <div class="form-row" style="margin-top:14px">
       {{ field('', 'retention_days', 'Delete camera photos after (days)', 'Reference photos are kept', type='number') }}
+      {{ field('', 'late_evidence_days', 'Keep photos of late days for (days)', 'Evidence, in case someone disputes being late', type='number') }}
       <label class="field grow">Healthchecks.io ping URL (alert if this computer stops)<input name="healthcheck_url" value="{{ s['']['healthcheck_url'] }}"></label>
     </div>
     <hr>

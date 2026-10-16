@@ -4,6 +4,7 @@ data_dir: data                 # database, face crops, logs
 employees_file: employees.csv  # columns: id,name; imported once when there are no employees yet
 healthcheck_url: ""            # e.g. https://hc-ping.com/<uuid>; pinged every minute so you get an alert if this PC stops
 retention_days: 90             # camera photos of arrivals and unknown faces are deleted after this many days
+late_evidence_days: 365        # photos of days on which a person was late are kept this long, as evidence
 
 # Most settings below can also be changed on the admin page (Settings); values saved there
 # take precedence over this file. The recognition backend, web host/port and data_dir can

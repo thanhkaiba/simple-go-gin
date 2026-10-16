@@ -17,6 +17,7 @@ from flask import (Flask, Response, abort, flash, jsonify, redirect, render_temp
                    send_from_directory, url_for)
 
 from . import __version__, leave_api, settings, updater
+from . import evidence as evidence_module
 from . import setup as first_setup
 from .icons import icon
 from .service import SOURCES, minutes_late
@@ -189,6 +190,24 @@ def create_app(core: "App") -> Flask:
         except ValueError as exc:
             return failed(str(exc), "index", day=day)
         return done("Arrival deleted.", "index", day=day)
+
+    def _evidence(day: str, employee_id: str):
+        d = _date(day, service.now().date())
+        if store.employee(employee_id) is None:
+            abort(404)
+        return d, evidence_module.build(service, d, employee_id)
+
+    @app.get("/day/<day>/<employee_id>/evidence")
+    def evidence_page(day: str, employee_id: str):
+        d, ev = _evidence(day, employee_id)
+        return render_template("evidence.html", ev=ev, day=d, cfg=cfg)
+
+    @app.get("/day/<day>/<employee_id>/evidence.zip")
+    def evidence_zip(day: str, employee_id: str):
+        d, ev = _evidence(day, employee_id)
+        store.log(service.now(), user(), "export evidence", f"{d} {ev.name}")
+        return Response(evidence_module.zip_bytes(ev, core.data_dir), mimetype="application/zip",
+                        headers={"Content-Disposition": f'attachment; filename="evidence-{employee_id}-{d}.zip"'})
 
     @app.post("/sighting/<int:sighting_id>/<action>")
     def change_sighting(sighting_id: int, action: str):

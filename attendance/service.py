@@ -23,7 +23,7 @@ from . import leave_api
 from .config import Config, parse_clock
 from .gallery import Gallery
 from .notifier import GoogleChat
-from .store import LEAVE_KINDS, Store, body_photo
+from .store import LEAVE_KINDS, Store, body_photo, scene_photo
 
 if TYPE_CHECKING:
     from .faces import FaceLibrary
@@ -244,18 +244,18 @@ class AttendanceService:
     # events from the camera pipeline ----------------------------------------------
 
     def on_identified(self, employee_id: str, ts: dt.datetime, score: float, image: str | None,
-                      vector: np.ndarray | None = None) -> None:
+                      vector: np.ndarray | None = None, sha256: str | None = None) -> None:
         """The camera identified someone. The face embedding is kept with the sighting, so that
         if the admin later moves it to the right person, that person's face can be learned."""
         ts = self._local(ts)
         result = self.store.record_checkin(ts.date(), employee_id, ts, "camera", score, image,
-                                           self.model_id if vector is not None else None, vector)
+                                           self.model_id if vector is not None else None, vector, sha256)
         log.info("Identified %s at %s (score %.2f): %s", employee_id, ts.strftime("%H:%M:%S"), score, result)
         if result == "new":
             self._announce(employee_id, ts, suffix="")
 
     def on_unknown(self, ts: dt.datetime, image: str | None, vector: np.ndarray | None,
-                   guess_id: str | None, guess_score: float | None) -> int | None:
+                   guess_id: str | None, guess_score: float | None, sha256: str | None = None) -> int | None:
         ts = self._local(ts)
         seen_again = self.cfg.recognition.seen_again_score  # 0 switches this off
         if (guess_id and guess_score is not None and seen_again and guess_score >= seen_again
@@ -270,7 +270,7 @@ class AttendanceService:
             log.info("Unknown face at %s (closest %s %.2f, group %s)", ts.strftime("%H:%M:%S"), guess_id,
                      guess_score or 0, group_id or "new")
         return self.store.add_unknown(ts.date(), ts, image, self.model_id, vector, guess_id, guess_score,
-                                      group_id, ignored=ignored)
+                                      group_id, ignored=ignored, sha256=sha256)
 
     def _find_group(self, vector: np.ndarray | None, ts: dt.datetime) -> tuple[int | None, bool]:
         """(group, ignored): the group of the most similar unknown face if it is clearly the same person,
@@ -316,7 +316,8 @@ class AttendanceService:
         today = self.now().date()
         for u in members:
             ts = self._local(u.ts)
-            result = self.store.record_checkin(ts.date(), employee_id, ts, "admin", u.guess_score, u.image)
+            result = self.store.record_checkin(ts.date(), employee_id, ts, "admin", u.guess_score, u.image,
+                                               sha256=u.sha256)
             # Earlier days are corrected quietly; only today's arrival is posted.
             if result in ("new", "earlier") and ts.date() == today:
                 self._announce(employee_id, ts, suffix=" (confirmed by admin)")
@@ -637,16 +638,26 @@ class AttendanceService:
             self._last_flush = now
 
     def cleanup(self, today: dt.date) -> int:
-        """Delete camera snapshots and unknown faces older than the retention period."""
+        """Delete camera snapshots and unknown faces older than the retention period. Snapshots of
+        days on which a person was late are kept for late_evidence_days instead, as evidence."""
         cutoff = today - dt.timedelta(days=self.cfg.retention_days)
+        late_cutoff = today - dt.timedelta(days=max(self.cfg.late_evidence_days, self.cfg.retention_days))
+        keep: set[tuple[dt.date, str]] = set()
+        if late_cutoff < cutoff:
+            days = {d for d, _ in self.store.checkins_between(late_cutoff, cutoff - dt.timedelta(days=1))}
+            for day in sorted(days):
+                keep |= {(day, a.employee_id) for a in self.report(day).late}
         data_dir = self.cfg.path(self.cfg.data_dir)
         removed = 0
-        for image in self.store.expire_snapshots(cutoff):
+        for image in self.store.expire_snapshots(cutoff, keep):
+            if not image.startswith("crops/"):
+                continue
             path = data_dir / image
-            if image.startswith("crops/") and path.exists():
+            if path.exists():
                 path.unlink()
-                (data_dir / body_photo(image)).unlink(missing_ok=True)
                 removed += 1
+            for extra in (body_photo(image), scene_photo(image)):
+                (data_dir / extra).unlink(missing_ok=True)
         crops = data_dir / "crops"
         if crops.exists():
             for folder in crops.iterdir():  # folders are named by day

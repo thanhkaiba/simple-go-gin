@@ -56,6 +56,8 @@ The Setup page walks through it: camera address (for Ezviz, `rtsp://admin:<VERIF
 
 ## Keep it running
 
+**Clock.** The times in the records and on the evidence pictures come from this computer's clock; leave automatic time synchronisation on (the default on macOS and Windows).
+
 **Computer settings.**
 - **Windows:** Power → Sleep → *Never*. Set Windows Update *active hours* to cover the morning. In the BIOS, enable *Restore on AC Power Loss*.
 - **macOS:** System Settings → *Energy* (or *Battery → Options*): enable *Prevent automatic sleeping* and *Start up automatically after a power failure*. Turn off automatic macOS updates during the morning. Enable automatic login for the user.

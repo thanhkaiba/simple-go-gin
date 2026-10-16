@@ -234,3 +234,18 @@ def test_area_with_person_tracking_shifts_people_too(core):
     _, _, people = proc.process(np.zeros((400, 800, 3), np.uint8), step(0))
     assert people[0].box.tolist() == [500, 100, 600, 400]
     assert proc._people.tracks[0].box.tolist() == [100, 100, 200, 400]  # the tracker keeps area pixels
+
+
+def test_scene_keeps_the_whole_frame_and_shifts_the_face_box(core):
+    app, clock, _ = core
+    app.cfg.camera.area = "0.5,0.25,1,1"
+    app._recognizer = CropRecognizer()
+    proc = FrameProcessor(app)
+    frame = np.zeros((400, 800, 3), np.uint8)
+    decisions = []
+    for i in range(4):
+        d, _, _ = proc.process(frame, step(i))
+        decisions += d
+    [d] = decisions
+    scene_frame, box = d.scene
+    assert scene_frame.shape == (400, 800, 3) and box == (410.0, 120.0, 470.0, 180.0)

@@ -127,6 +127,8 @@
       <span class="hint">The arrival is the earliest sighting that is not removed. If one of them was someone else,
         fix that sighting: the arrival is recomputed from the others, and the face is learned for the right person.</span>
     </div>
+    <p class="hint" style="margin:0"><a id="edit-evidence" target="_blank">Evidence page</a>: the camera pictures with the
+      time stamp, every sighting and every change for this person's day, printable or as a ZIP.</p>
     <form method="post" id="form-set">
       <strong id="set-label">Arrival time</strong>
       <div class="form-row"><input name="time" id="edit-time" class="time24" inputmode="numeric" maxlength="5" placeholder="HH:MM"
@@ -197,6 +199,7 @@
     set: "{{ url_for('set_arrival', day=rep.day.isoformat(), employee_id='__EMP__') }}",
     move: "{{ url_for('reassign_arrival', day=rep.day.isoformat(), employee_id='__EMP__') }}",
     del: "{{ url_for('delete_arrival', day=rep.day.isoformat(), employee_id='__EMP__') }}",
+    evidence: "{{ url_for('evidence_page', day=rep.day.isoformat(), employee_id='__EMP__') }}",
   };
   function openEdit(row) {
     const emp = encodeURIComponent(row.dataset.emp), has = row.dataset.has === '1';
@@ -206,6 +209,7 @@
     document.getElementById('form-set').action = urls.set.replace('__EMP__', emp);
     document.getElementById('form-move').action = urls.move.replace('__EMP__', emp);
     document.getElementById('form-delete').action = urls.del.replace('__EMP__', emp);
+    document.getElementById('edit-evidence').href = urls.evidence.replace('__EMP__', emp);
     document.getElementById('form-move').hidden = !has;
     document.getElementById('form-delete').hidden = !has;
     for (const o of document.getElementById('edit-to').options) o.hidden = o.value === row.dataset.emp;
