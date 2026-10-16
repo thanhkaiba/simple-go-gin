@@ -1,4 +1,5 @@
 import datetime as dt
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -48,7 +49,7 @@ def test_outbox_drops_messages_older_than_a_day(tmp_path):
 
 
 def test_config_loads_example_and_quoted_or_unquoted_times(tmp_path):
-    cfg = config.load(__file__.rsplit("/tests/", 1)[0] + "/config.example.yaml")
+    cfg = config.load(Path(__file__).parents[1] / "config.example.yaml")
     assert cfg.schedule.clocks() == (dt.time(8), dt.time(10), dt.time(11))
     p = tmp_path / "c.yaml"
     p.write_text("schedule:\n  window_start: 09:00\n  late_after: 10:00\n  window_end: 11:30\n")
