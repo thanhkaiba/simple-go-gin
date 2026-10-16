@@ -108,7 +108,7 @@ def crop_body(frame: np.ndarray, bbox) -> np.ndarray:
     clothes: a standing person is about eight face heights tall and four face widths wide."""
     x1, y1, x2, y2 = bbox
     fw, fh, cx = x2 - x1, y2 - y1, (x1 + x2) / 2
-    return crop_face(frame, (cx - 2 * fw, y1 - 0.5 * fh, cx + 2 * fw, y1 + 8 * fh), margin=0)
+    return crop_face(frame, (cx - 2 * fw, y1 - fh, cx + 2 * fw, y1 + 8 * fh), margin=0)
 
 
 def cpu_threads(setting: int = 0) -> int:

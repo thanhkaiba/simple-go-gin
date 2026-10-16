@@ -136,7 +136,7 @@ def test_review_page_shows_the_whole_person(core):
 
     frame = np.zeros((500, 1000, 3), dtype=np.uint8)
     body = crop_body(frame, (450, 100, 500, 160))  # a 50x60 face: 4 face widths, down to the bottom of the picture
-    assert body.shape[:2] == (500 - 70, 200)
+    assert body.shape[:2] == (500 - 40, 200)
     app, clock, _ = core
     d = Decision("unknown", at(9, 5), None, None, frame[100:160, 450:500], near(90, 1), body)
     image = save_crop(app, d, at(9, 5))
