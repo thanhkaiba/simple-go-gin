@@ -50,6 +50,7 @@
   {% for a, b in rep.outages %}{{ a.strftime('%H:%M') }}–{{ b.strftime('%H:%M') }}{{ ', ' if not loop.last }}{% endfor %};
   people who arrived then may be missing.</span></div>{% endif %}
 {% if leave.warning %}<div class="alert warn"><span class="ico">{{ icon('alert') }}</span><span>{{ leave.warning|replace("⚠️ ", "") }}{% if leave.message and not leave.ok %} ({{ leave.message }}){% endif %}</span></div>{% endif %}
+{% if backup_warning %}<div class="alert warn"><span class="ico">{{ icon('alert') }}</span><span>{{ backup_warning }} <a href="{{ url_for('settings_page') }}#admin">Settings</a></span></div>{% endif %}
 {% if rep.no_photos %}<div class="alert warn"><span class="ico">{{ icon('alert') }}</span><span>Cannot be recognised (no photos):
   {% for id, name in rep.no_photos %}<a href="{{ url_for('employee', employee_id=id) }}">{{ name }}</a>{{ ', ' if not loop.last }}{% endfor %}</span></div>{% endif %}
 {% if rep.day == today and rep.workday and not started %}<div class="alert info"><span class="ico">{{ icon('clock') }}</span><span>The camera starts at {{ rep.window.start.strftime('%H:%M') }}.</span></div>{% endif %}

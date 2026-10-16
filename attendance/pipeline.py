@@ -9,6 +9,7 @@ import urllib.request
 from pathlib import Path
 
 from . import settings
+from .backup import Backup
 from .config import Config
 from .faces import FaceLibrary
 from .gallery import Gallery
@@ -51,6 +52,8 @@ class App:
         self.leave_sync = LeaveSync(cfg, self.store, self.service.now, lambda d: self.service.window(d).late_after)
         self.live = LiveStatus()
         self.pose = PoseCalibration(self.store, lambda: cfg.recognition.auto_pose)
+        self.backup = Backup(self.store, cfg, self.service.now, self.service.alert)
+        self.service.backup = self.backup
 
     def recognizer(self):
         if self._recognizer is None:

@@ -54,6 +54,11 @@ def main() -> None:
     p.add_argument("--day", default=None, help="YYYY-MM-DD, default today")
     sub.add_parser("test-chat", help="send a test message to Google Chat")
     sub.add_parser("self-test", help="check that the libraries and the models load (used after building the packages)")
+    p = sub.add_parser("backup", help="copy the database, settings and photos to the backup folder now")
+    p.add_argument("folder", nargs="?", default=None, help="default: the folder set in Settings")
+    p = sub.add_parser("restore", help="put a backup back into this install (stop the program first)")
+    p.add_argument("folder")
+    p.add_argument("--snapshot", default=None, help="which database copy, YYYY-MM-DD (default: the newest)")
     args = parser.parse_args()
 
     cfg = config_module.load(args.config)
@@ -90,6 +95,20 @@ def main() -> None:
         from .pipeline import App
 
         benchmark(App(cfg), Path(args.video), args.modes)
+    elif args.command == "backup":
+        from .pipeline import App
+
+        app = App(cfg)
+        if args.folder:
+            cfg.backup.folder = args.folder
+        result = app.backup.run_now("command line")
+        print(result.message)
+        if not result.ok:
+            raise SystemExit(1)
+    elif args.command == "restore":
+        from .backup import restore
+
+        print(restore(cfg, Path(args.folder), args.snapshot))
     elif args.command == "self-test":
         import numpy as np
 

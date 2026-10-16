@@ -131,6 +131,24 @@
       <label class="field grow">Healthchecks.io ping URL (alert if this computer stops)<input name="healthcheck_url" value="{{ s['']['healthcheck_url'] }}"></label>
     </div>
     <hr>
+    <h2>Backup</h2>
+    <p class="hint" style="margin-top:0">Once a day, the database, the settings and the photos are copied to a folder you choose:
+      an external drive, a network share, or a folder that Google Drive / OneDrive / Dropbox syncs. To move to another computer,
+      install there and run <code>restore</code> from that folder (see the install guide).
+      {% if backup.at %}<br>Last backup {{ backup.at|replace('T', ' ')|truncate(19, True, '') }}:
+        {% if backup.ok %}<span class="badge ok">OK</span>{% else %}<span class="badge bad">failed</span>{% endif %} {{ backup.message }}
+      {% elif s.backup.folder %}<br>No backup made yet; the first one runs at {{ s.backup.time }}.{% endif %}</p>
+    <div class="form-row">
+      <label class="field grow">Backup folder<input name="backup.folder" value="{{ s.backup.folder }}" placeholder="/Volumes/Backup · D:\Backup · ~/Google Drive/Attendance">
+        <span class="hint">Empty = no backups. The folder must already exist.</span></label>
+      {{ field('backup', 'time', 'Every day at', 'After camera hours', type='time') }}
+      {{ field('backup', 'keep_days', 'Keep daily copies (days)', type='number') }}
+    </div>
+    <div class="form-row" style="margin-top:12px; align-items:center">
+      {{ check('backup', 'include_photos', 'Include camera pictures', 'The database and reference photos are always included') }}
+      <button class="btn-sm" formaction="{{ url_for('backup_now') }}" formnovalidate>Back up now</button>
+    </div>
+    <hr>
     <h2>Updates</h2>
     <p class="hint" style="margin-top:0">Version {{ version }}.
       {% if update.checked_at %}Last checked {{ update.checked_at|replace('T', ' ') }}{% if update.latest %}, newest is {{ update.latest }}{% endif %}.{% endif %}

@@ -2,7 +2,7 @@
 
 ## Installer (recommended)
 
-Download the installer for your computer from the newest [release](https://github.com/thanhkaiba/simple-go-gin/releases/latest). It contains Python and every library; only the face models (about 300 MB) are downloaded, by the program itself on its first start, with the progress shown on the page. No admin rights needed.
+Download the installer for your computer from the newest [release](https://github.com/thanhkaiba/rice-camera/releases/latest). It contains Python and every library; only the face models (about 300 MB) are downloaded, by the program itself on its first start, with the progress shown on the page. No admin rights needed.
 
 | | Windows | macOS | Linux |
 |---|---|---|---|
@@ -108,6 +108,28 @@ WantedBy=multi-user.target
 **Alert when the computer stops.** Create a free check on [Healthchecks.io](https://healthchecks.io) with a 1-minute period and 5-minute grace, and enter its ping URL in Settings.
 
 **Remote access.** The admin page only works inside the office network. For remote access, install [Tailscale](https://tailscale.com) on this computer and the admin's devices. Never open a port to the internet.
+
+## Backup and moving to another computer
+
+**Backup.** In *Settings → Access & privacy → Backup*, choose a folder on an external drive, a network share, or a folder that Google Drive / OneDrive / Dropbox keeps in the cloud. Once a day (12:00 by default, after camera hours) the program writes there:
+
+| | |
+|---|---|
+| `attendance-backup/db/attendance-<date>.db` | a consistent copy of the database (records, sightings and their hashes, settings, learned faces), one per day, the newest 30 kept |
+| `attendance-backup/config.yaml` | the settings file |
+| `attendance-backup/data/faces/` | reference photos, mirrored |
+| `attendance-backup/data/crops/` | camera pictures (the evidence), mirrored; untick *Include camera pictures* to leave them out |
+
+*Back up now* runs it at once; the page shows the last result. The Today page warns when a backup failed or is more than two days old, and a warning is posted to Google Chat once a day while it fails. From a terminal: `python -m attendance --config config.yaml backup [folder]`.
+
+**Moving to another computer, or after a disk failure.** Install the program on the new computer and open it once (that creates the data folder), stop it, then run:
+
+- installer: `FaceAttendance stop`, then `FaceAttendance restore "<backup folder>"` (macOS: `/Applications/FaceAttendance.app/Contents/MacOS/FaceAttendance ...`)
+- script or source install: `python -m attendance --config config.yaml restore "<backup folder>"`
+
+It puts back the newest database copy (`--snapshot 2026-10-01` picks an older one), the photos, and `config.yaml` when the new computer has none. Start the program again and check the camera address and *Address of this page* in Settings: the new computer may have another IP address.
+
+**By hand** works too: the data folder (see the table above) is self-contained, so copying it to the same place on the new computer is a complete move.
 
 ## Publishing a release
 

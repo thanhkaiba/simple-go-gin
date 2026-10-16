@@ -240,6 +240,18 @@ class Store:
     def close(self) -> None:
         self._db.close()
 
+    def backup_to(self, path: Path) -> None:
+        """A consistent copy of the database (SQLite online backup), safe while the program runs."""
+        path.parent.mkdir(parents=True, exist_ok=True)
+        partial = path.with_suffix(".part")
+        dest = sqlite3.connect(str(partial))
+        try:
+            with self._lock:
+                self._db.backup(dest)
+        finally:
+            dest.close()
+        partial.replace(path)
+
     def _migrate(self) -> None:
         """Add columns introduced after a database was created."""
         added = {"embeddings": [("image", "TEXT")], "unknowns": [("group_id", "INTEGER"), ("ignored_day", "TEXT"), ("sha256", "TEXT")],

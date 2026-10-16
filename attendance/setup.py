@@ -73,6 +73,8 @@ def steps(core) -> list[Step]:
         Step("mentions", "@mentions in Google Chat", employees > 0 and with_chat == employees, False,
              f"{with_chat}/{employees} employees have a Google Chat ID." if employees else ""),
         Step("hr", "Holidays & leave from the HR system", bool(cfg.leave_api.url), False),
+        Step("backup", "Daily backup to another place", bool(cfg.backup.folder), False,
+             "Settings → Access & privacy → Backup: a folder on an external drive, a network share or a cloud-synced folder."),
     ]
 
 

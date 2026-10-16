@@ -190,6 +190,15 @@ class UpdatesConfig:
 
 
 @dataclass
+class BackupConfig:
+    """Daily copy of the database, settings and photos to another place (see backup.py)."""
+    folder: str = ""  # empty = no backups. An external drive, a network share, or a cloud-synced folder
+    time: str = "12:00"  # after camera hours, when the computer has nothing else to do
+    keep_days: int = 30  # daily database copies kept
+    include_photos: bool = True  # camera pictures (crops/) too, not only the reference photos
+
+
+@dataclass
 class Config:
     timezone: str = "Asia/Ho_Chi_Minh"
     data_dir: str = "data"
@@ -208,6 +217,7 @@ class Config:
     late_message: LateMessageConfig = field(default_factory=LateMessageConfig)
     web: WebConfig = field(default_factory=WebConfig)
     updates: UpdatesConfig = field(default_factory=UpdatesConfig)
+    backup: BackupConfig = field(default_factory=BackupConfig)
     base_dir: Path = field(default=Path("."), repr=False)
 
     @property
@@ -246,6 +256,10 @@ class Config:
             raise ValueError("retention_days must be at least 1")
         if self.late_evidence_days < 1:
             raise ValueError("late_evidence_days must be at least 1")
+        self.backup.folder = self.backup.folder.strip()
+        self.backup.time = parse_clock(self.backup.time).strftime("%H:%M")
+        if self.backup.keep_days < 1:
+            raise ValueError("backup.keep_days must be at least 1")
         lm = self.late_message
         if str(lm.send_at).strip():
             lm.send_at = parse_clock(lm.send_at).strftime("%H:%M")

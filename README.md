@@ -15,7 +15,7 @@ flowchart LR
 
 ## Install
 
-Download the installer for your computer from the newest [release](https://github.com/thanhkaiba/simple-go-gin/releases/latest) and run it. It starts at login and opens the **Setup** page the first time (camera, hours, Google Chat, password, people). From source: `Install.bat` / `Install.command`. Everything else is in [docs/install.md](docs/install.md).
+Download the installer for your computer from the newest [release](https://github.com/thanhkaiba/rice-camera/releases/latest) and run it. It starts at login and opens the **Setup** page the first time (camera, hours, Google Chat, password, people). From source: `Install.bat` / `Install.command`. Everything else is in [docs/install.md](docs/install.md).
 
 ## How it decides
 
@@ -56,7 +56,7 @@ The default `insightface` models are **non-commercial research only**; company u
 
 ## Privacy
 
-Face photos are personal data: inform employees and get consent. Camera snapshots are deleted after 90 days, except for days on which the person was late: those are kept for a year as evidence (both in Settings); reference photos stay until deleted; deleting a person removes their face data. Everything is in the data folder (`attendance.db`, `faces/`, `crops/`, `attendance.log`). The admin page is for the office network only; for remote access use [Tailscale](https://tailscale.com), never an open port.
+Face photos are personal data: inform employees and get consent. Camera snapshots are deleted after 90 days, except for days on which the person was late: those are kept for a year as evidence (both in Settings); reference photos stay until deleted; deleting a person removes their face data. **Backup:** once a day everything is copied to a folder you choose (external drive, network share or cloud-synced folder); moving to another computer is `restore` from that folder, see [docs/install.md](docs/install.md#backup-and-moving-to-another-computer). Everything is in the data folder (`attendance.db`, `faces/`, `crops/`, `attendance.log`). The admin page is for the office network only; for remote access use [Tailscale](https://tailscale.com), never an open port.
 
 ## Development
 

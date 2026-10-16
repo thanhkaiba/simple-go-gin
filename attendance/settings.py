@@ -26,6 +26,7 @@ EDITABLE: dict[str, list[str]] = {
     "late_message": ["enabled", "intro", "item", "auto_send", "send_at"],
     "web": ["public_url", "password"],
     "updates": ["enabled"],
+    "backup": ["folder", "time", "keep_days", "include_photos"],
     "": ["retention_days", "late_evidence_days", "healthcheck_url"],
 }
 

@@ -161,7 +161,8 @@ def create_app(core: "App") -> Flask:
                                late=lambda a: minutes_late(a, rep.window), today=today,
                                prev_day=day - dt.timedelta(days=1), next_day=day + dt.timedelta(days=1),
                                leave=leave_status(), started=service.now() >= rep.window.start,
-                               late_msg=late_message_status(day), deadline=deadline_status(day))
+                               late_msg=late_message_status(day), deadline=deadline_status(day),
+                               backup_warning=core.backup.warning(service.now()))
 
     @app.post("/day/<day>/<employee_id>/set")
     def set_arrival(day: str, employee_id: str):
@@ -563,7 +564,7 @@ def create_app(core: "App") -> Flask:
     def settings_page():
         return render_template("settings.html", s=settings.current(cfg), cfg=cfg, leave=leave_status(),
                                pose=core.pose.describe(), version=__version__, packaged=getattr(sys, "frozen", False),
-                               update=updater.read_status(core.data_dir))
+                               update=updater.read_status(core.data_dir), backup=core.backup.status())
 
     @app.post("/settings")
     def save_settings():
@@ -597,6 +598,25 @@ def create_app(core: "App") -> Flask:
         store.log(service.now(), user(), "check for updates", "")
         return done("Checking for a new version. If there is one, it is installed and the program restarts "
                     "by itself in a minute or two.", "settings_page")
+
+    @app.post("/settings/backup-now")
+    def backup_now():
+        # The button sits in the settings form: use the folder as typed, saving it first.
+        form = request.form
+        changes = {n: form[f"backup.{n}"] for n in ("folder", "time", "keep_days") if f"backup.{n}" in form}
+        if "backup.folder" in form:
+            changes["include_photos"] = form.get("backup.include_photos") == "on"
+        try:
+            if changes:
+                settings.save(cfg, store, {"backup": changes})
+        except ValueError as exc:
+            return failed(f"Not saved: {exc}", "settings_page")
+        if not cfg.backup.folder:
+            return failed("Enter a backup folder first.", "settings_page")
+        if not core.backup.start(user()):
+            return failed("A backup is already running.", "settings_page")
+        store.log(service.now(), user(), "backup now", cfg.backup.folder)
+        return done("Backup started; the result shows here in a moment (reload the page).", "settings_page")
 
     @app.post("/settings/pose-reset")
     def reset_pose():

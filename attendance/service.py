@@ -132,6 +132,7 @@ class AttendanceService:
         self.chat = chat
         self.gallery = gallery
         self.library: FaceLibrary | None = None  # set by the app; used to learn admin-confirmed faces
+        self.backup = None  # set by the app: the daily backup (backup.Backup)
         self._now = now or (lambda: dt.datetime.now(self.tz))
         saved = store.get("last_alive")
         self._last_alive = dt.datetime.fromisoformat(saved) if saved else None
@@ -632,6 +633,9 @@ class AttendanceService:
         if self.store.get("cleanup_day") != day.isoformat():
             self.cleanup(day)
             self.store.put("cleanup_day", day.isoformat())
+
+        if self.backup is not None and self.backup.due(now):
+            self.backup.start()
 
         if self._last_flush is None or now - self._last_flush >= FLUSH_EVERY:
             self.chat.kick(now)

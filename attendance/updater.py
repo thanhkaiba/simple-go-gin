@@ -9,6 +9,7 @@ starts, so updating never needs to write to the install folder or ask for permis
 from __future__ import annotations
 
 import datetime as dt
+import hashlib
 import json
 import logging
 import platform
@@ -25,7 +26,7 @@ from . import __version__
 
 log = logging.getLogger(__name__)
 
-REPO = "thanhkaiba/simple-go-gin"
+REPO = "thanhkaiba/rice-camera"  # renamed from simple-go-gin; GitHub redirects the old name
 STATUS_FILE = "update.json"     # in the data folder; shown on the Settings page
 REQUEST_FILE = "update.request"  # written by the Settings page: check now
 KEEP_VERSIONS = 2
@@ -55,8 +56,9 @@ def exe_in(folder: Path) -> Path:
     return folder / "FaceAttendance" / ("FaceAttendance.exe" if sys.platform == "win32" else "FaceAttendance")
 
 
-def latest_release(repo: str = REPO) -> tuple[str, str] | None:
-    """(version, download URL) of the newest release that has a package for this computer."""
+def latest_release(repo: str = REPO) -> tuple[str, str, str | None] | None:
+    """(version, download URL, published checksum or None) of the newest release that has a package
+    for this computer."""
     req = urllib.request.Request(f"https://api.github.com/repos/{repo}/releases/latest",
                                  headers={"Accept": "application/vnd.github+json", "User-Agent": "FaceAttendance"})
     try:
@@ -68,7 +70,7 @@ def latest_release(repo: str = REPO) -> tuple[str, str] | None:
         raise
     for asset in release.get("assets", []):
         if asset["name"] == asset_name():
-            return release["tag_name"].lstrip("v"), asset["browser_download_url"]
+            return release["tag_name"].lstrip("v"), asset["browser_download_url"], asset.get("digest")
     return None
 
 
@@ -89,7 +91,9 @@ def newer_installed(home: Path) -> Path | None:
     return None
 
 
-def unpack(url: str, version: str, home: Path) -> Path:
+def unpack(url: str, version: str, home: Path, digest: str | None = None) -> Path:
+    """Download and unpack a release package into versions/<version>/. With `digest` (GitHub's
+    "sha256:<hex>" for the asset), a download that does not match is refused."""
     versions = home / "versions"
     target, partial = versions / version, versions / (version + ".part")
     shutil.rmtree(partial, ignore_errors=True)
@@ -97,6 +101,13 @@ def unpack(url: str, version: str, home: Path) -> Path:
     archive = versions / (version + "-" + url.rsplit("/", 1)[1])
     with urllib.request.urlopen(url, timeout=120) as resp, open(archive, "wb") as out:
         shutil.copyfileobj(resp, out, 1 << 20)
+    if digest and ":" in digest:
+        algorithm, expected = digest.split(":", 1)
+        actual = hashlib.new(algorithm, archive.read_bytes()).hexdigest()
+        if actual != expected.lower():
+            archive.unlink(missing_ok=True)
+            shutil.rmtree(partial, ignore_errors=True)
+            raise RuntimeError(f"the download of version {version} does not match the published checksum")
     try:
         if archive.name.endswith(".zip"):
             with zipfile.ZipFile(archive) as z:
@@ -178,11 +189,11 @@ class Updater:
         if not found or parse(found[0]) <= parse(__version__):
             write_status(self.data, checked_at=now, latest=found[0] if found else __version__, error="", state="")
             return
-        version, url = found
+        version, url, digest = (*found, None)[:3]
         log.info("Downloading version %s", version)
         write_status(self.data, checked_at=now, latest=version, error="", state=f"Downloading version {version}")
         try:
-            self.waiting = unpack(url, version, self.home)
+            self.waiting = unpack(url, version, self.home, digest)
         except Exception as exc:
             write_status(self.data, error=f"Could not download version {version}: {exc}", state="")
             return
