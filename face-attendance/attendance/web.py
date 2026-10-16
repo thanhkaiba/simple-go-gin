@@ -162,10 +162,11 @@ def create_app(core: "App") -> Flask:
     def reassign_arrival(day: str, employee_id: str):
         d = _date(day, service.now().date())
         try:
-            service.reassign_arrival(d, employee_id, request.form.get("to", ""), user())
+            learned = service.reassign_arrival(d, employee_id, request.form.get("to", ""), user())
         except ValueError as exc:
             return failed(str(exc), "index", day=day)
-        return done("Arrival moved to the right person.", "index", day=day)
+        return done("Arrival moved to the right person" + (", and their face learned." if learned else "."),
+                    "index", day=day)
 
     @app.post("/day/<day>/<employee_id>/delete")
     def delete_arrival(day: str, employee_id: str):
@@ -180,9 +181,10 @@ def create_app(core: "App") -> Flask:
     def change_sighting(sighting_id: int, action: str):
         s = store.sighting(sighting_id)
         day = s.day.isoformat() if s else None
+        learned = False
         try:
             if action == "move":
-                service.move_sighting(sighting_id, request.form.get("to", ""), user())
+                learned = service.move_sighting(sighting_id, request.form.get("to", ""), user())
             elif action == "reject":
                 service.reject_sighting(sighting_id, user())
             elif action == "restore":
@@ -191,8 +193,8 @@ def create_app(core: "App") -> Flask:
                 abort(404)
         except ValueError as exc:
             return failed(str(exc), "index", day=day)
-        return done({"move": "Sighting moved to the right person.", "reject": "Sighting removed.",
-                     "restore": "Sighting restored."}[action], "index", day=day)
+        return done({"move": "Sighting moved to the right person" + (", and their face learned." if learned else "."),
+                     "reject": "Sighting removed.", "restore": "Sighting restored."}[action], "index", day=day)
 
     @app.post("/day/<day>/late-message")
     def send_late_message(day: str):
@@ -209,15 +211,19 @@ def create_app(core: "App") -> Flask:
         for members in store.pending_groups():
             guesses = [u for u in members if u.guess_id in store.employees()]
             best = max(guesses, key=lambda u: u.guess_score or 0) if guesses else None
-            groups.append({"id": members[-1].id, "members": members, "latest": members[-1],
-                           "photos": [u.image for u in reversed(members) if u.image][:6],
+            photos = [u.image for u in reversed(members) if u.image][:6]
+            groups.append({"id": members[-1].id, "members": members, "latest": members[-1], "photos": photos,
+                           "photo_urls": [url_for("media", path=p) for p in photos],
                            "guess": best.guess_id if best else None, "guess_score": best.guess_score if best else None})
         ignored = [{"id": g[-1].id, "count": len(g), "latest": g[-1],
                     "photo": next((u.image for u in reversed(g) if u.image), None)}
                    for g in store.ignored_groups(service.now().date())]
+        # ?review=first (the link in chat) or ?review=<id> opens that group's review window at once.
+        review = request.args.get("review", "")
+        open_id = groups[0]["id"] if review == "first" and groups else (int(review) if review.isdigit() else None)
         return render_template("unknowns.html", groups=groups, ignored=ignored, employees=store.employees(),
                                local=lambda ts: ts.astimezone(service.tz), next_id=_next_id(store.all_employees()),
-                               no_photos=not core.gallery.counts())
+                               no_photos=not core.gallery.counts(), open_id=open_id)
 
     @app.post("/unknowns/<int:unknown_id>/assign")
     def assign(unknown_id: int):

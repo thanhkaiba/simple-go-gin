@@ -187,7 +187,7 @@ def run(cfg: Config) -> None:
             ts = d.ts.astimezone(service.tz)
             image = save_crop(app, d, ts)
             if d.kind == "identified":
-                service.on_identified(d.employee_id, ts, d.score, image)
+                service.on_identified(d.employee_id, ts, d.score, image, d.embedding)
                 live.last_identified = f"{app.store.employees().get(d.employee_id, d.employee_id)} at {ts:%H:%M:%S}"
             else:
                 service.on_unknown(ts, image, d.embedding, d.employee_id, d.score)

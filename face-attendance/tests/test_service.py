@@ -83,6 +83,38 @@ def test_unknown_faces_are_batched_and_admin_can_resolve(env):
         service.resolve_unknown(uid, "C")
 
 
+def test_moving_a_sighting_to_the_right_person_learns_their_face(env):
+    service, store, clock, sent = env
+    run_until(service, clock, at(9, 30))
+    carol_as_bob = person_vector(3) + 0.5 * person_vector(40)  # Carol's face, which the camera took for Bob
+    service.on_identified("B", at(9, 12), 0.5, "crops/x.jpg", carol_as_bob / np.linalg.norm(carol_as_bob))
+    s = store.sightings(DAY)[0]
+    assert s.model == service.model_id and s.vector is not None
+    assert service.move_sighting(s.id, "C") is True
+    assert set(store.checkins(DAY)) == {"C"}
+    assert service.gallery.counts()["C"] == 2 and service.gallery.counts()["B"] == 1
+    assert [r.source for r in store.references(service.model_id, "C")] == ["upload", "admin"]
+    assert "face learned" in store.audit()[0][3]
+
+    # The same face moved back learns nothing more for Bob when the setting is off; a sighting
+    # without an embedding (an arrival typed in) never learns.
+    service.cfg.recognition.learn_corrections = False
+    assert service.move_sighting(s.id, "B") is False
+    assert service.gallery.counts()["B"] == 1
+    service.cfg.recognition.learn_corrections = True
+    service.set_arrival(DAY, "A", dt.time(9, 0))
+    manual = next(x for x in store.sightings(DAY) if x.employee_id == "A")
+    assert service.move_sighting(manual.id, "C") is False
+
+
+def test_unclear_face_like_someone_checked_in_is_reviewed_when_setting_is_zero(env):
+    service, store, clock, sent = env
+    service.on_identified("B", at(9, 0), 0.7, None)
+    assert service.on_unknown(at(9, 5), "a.jpg", person_vector(20), "B", 0.35) is None  # taken to be Bob again
+    service.cfg.recognition.seen_again_score = 0
+    assert service.on_unknown(at(9, 6), "b.jpg", person_vector(21), "B", 0.35) is not None
+
+
 def test_admin_correction_moves_late_arrival_earlier(env):
     service, store, clock, sent = env
     run_until(service, clock, at(10, 30))

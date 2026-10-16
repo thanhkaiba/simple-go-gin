@@ -53,7 +53,9 @@ CREATE TABLE IF NOT EXISTS sightings (
     score REAL,
     image TEXT,
     status TEXT NOT NULL DEFAULT 'ok',  -- ok or rejected
-    camera_id TEXT  -- who the camera said it was (kept when an admin moves the sighting)
+    camera_id TEXT,  -- who the camera said it was (kept when an admin moves the sighting)
+    model TEXT,  -- the face embedding, so a sighting moved to the right person can be learned
+    vector BLOB
 );
 CREATE INDEX IF NOT EXISTS sightings_day ON sightings(day, employee_id);
 CREATE TABLE IF NOT EXISTS unknowns (
@@ -147,6 +149,8 @@ class Sighting:
     image: str | None
     status: str
     camera_id: str | None = None
+    model: str | None = None
+    vector: np.ndarray | None = None
 
 
 @dataclass
@@ -219,7 +223,8 @@ class Store:
     def _migrate(self) -> None:
         """Add columns introduced after a database was created."""
         added = {"embeddings": [("image", "TEXT")], "unknowns": [("group_id", "INTEGER"), ("ignored_day", "TEXT")],
-                 "employees": [("chat_user", "TEXT NOT NULL DEFAULT ''")], "sightings": [("camera_id", "TEXT")]}
+                 "employees": [("chat_user", "TEXT NOT NULL DEFAULT ''")],
+                 "sightings": [("camera_id", "TEXT"), ("model", "TEXT"), ("vector", "BLOB")]}
         for table, columns in added.items():
             have = {r["name"] for r in self._db.execute(f"PRAGMA table_info({table})")}
             for name, kind in columns:
@@ -362,7 +367,8 @@ class Store:
 
     def _sighting(self, r) -> Sighting:
         return Sighting(r["id"], dt.date.fromisoformat(r["day"]), r["employee_id"], dt.datetime.fromisoformat(r["ts"]),
-                        r["source"], r["score"], r["image"], r["status"], r["camera_id"])
+                        r["source"], r["score"], r["image"], r["status"], r["camera_id"], r["model"],
+                        _vec(r["vector"]))
 
     def _recompute(self, day: dt.date, employee_id: str) -> None:
         """The arrival is the earliest valid sighting, unless an admin typed a time in: the latest
@@ -387,14 +393,16 @@ class Store:
         return row["first_seen"] if row else None
 
     def record_checkin(self, day: dt.date, employee_id: str, ts: dt.datetime, source: str,
-                       score: float | None, image: str | None) -> str:
+                       score: float | None, image: str | None, model: str | None = None,
+                       vector: np.ndarray | None = None) -> str:
         """Add a sighting. Returns "new" (first arrival of the day), "earlier" (the arrival moved
         earlier) or "unchanged"."""
         with self._lock, self._db:
             before = self._arrival_ts(day, employee_id)
-            self._db.execute("INSERT INTO sightings (day, employee_id, ts, source, score, image, camera_id) "
-                             "VALUES (?, ?, ?, ?, ?, ?, ?)", (day.isoformat(), employee_id, ts.isoformat(), source, score,
-                                                              image, employee_id if source == "camera" else None))
+            self._db.execute("INSERT INTO sightings (day, employee_id, ts, source, score, image, camera_id, model, vector) "
+                             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                             (day.isoformat(), employee_id, ts.isoformat(), source, score, image,
+                              employee_id if source == "camera" else None, model, _blob(vector)))
             self._recompute(day, employee_id)
             after = self._arrival_ts(day, employee_id)
         if before is None:

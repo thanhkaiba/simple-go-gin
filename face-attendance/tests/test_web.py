@@ -27,7 +27,11 @@ def test_pages_render_and_admin_can_assign_unknown(core):
     assert "Alice" in page and "09:05" in page and page.count('data-status="not_seen"') == 2
 
     page = c.get("/unknowns").get_data(as_text=True)
-    assert "Looks like Bob" in page and "It's Bob" in page
+    assert "Looks like <strong>Bob</strong>" in page and 'data-guess-name="Bob"' in page
+    assert "openReview(first)" not in page  # nothing opens by itself
+    page = c.get("/unknowns?review=first").get_data(as_text=True)  # the link posted in chat
+    assert f'.face-card[data-id="{uid}"]' in page and "openReview(first)" in page
+    assert "/media/crops/u.jpg" in page
 
     resp = c.post(f"/unknowns/{uid}/assign", data={"employee_id": "B"})
     assert resp.status_code == 302

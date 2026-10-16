@@ -35,7 +35,7 @@ Times are set on the Settings page; defaults shown.
 - **10:00:** everyone not seen yet (each person @mentioned), plus who is on leave and who has no reference photos.
 - **Late arrival:** as it happens, with an @mention.
 - **Daily late message** when the camera stops (11:00 by default), as its own message: "Morning, coming late today: @Jennie Luu (10:15), and @Steven Hoang (10:32)". The wording can be changed in Settings; it can also be sent earlier from the Today page after checking it. Sending it for another day than today puts that day in front of the message.
-- **Unidentified faces:** batched every 5 minutes at most, with a link to review them.
+- **Unidentified faces:** batched every 5 minutes at most, as one line with a single *Say who it is* link; it opens the review window for the first face.
 - **Correction:** a short update whenever the admin fixes something after the 10:00 list went out.
 - **11:00:** daily summary.
 - **Warnings:**
@@ -150,7 +150,7 @@ The menu at the top has everything:
   - The page refreshes itself every minute while it shows today.
   - **Correcting:** click a person (or their *Edit* button) to open a small window where you can:
     - see **every time the camera saw them** that day, with the photo; the one their arrival comes from is outlined in green;
-    - fix **one sighting**: *It was… → Move* (it was someone else) or *Not them* (a visitor, say). The arrival is then **recomputed from the remaining sightings**. Example: Alice was taken for Bob at 9:20 and Bob really came at 10:15. Move the 9:20 sighting to Alice and Bob is shown late at 10:15, instead of disappearing;
+    - fix **one sighting**: *It was… → Move* (it was someone else) or *Not them* (a visitor, say). The arrival is then **recomputed from the remaining sightings**. Example: Alice was taken for Bob at 9:20 and Bob really came at 10:15. Move the 9:20 sighting to Alice and Bob is shown late at 10:15, instead of disappearing. A moved face is also **learned as a reference photo** of the right person: these are the faces the camera found hardest (can be turned off under Settings → Recognition → Advanced);
     - **change or add the arrival time**, e.g. someone who missed the camera. A time typed in wins over the camera;
     - **fix a wrong person** for the arrival itself ("Recorded the wrong person? It was…");
     - **delete** a wrong arrival. If the person really comes in later, the camera records them again.
@@ -162,16 +162,16 @@ The menu at the top has everything:
   - Days when the camera did not work are flagged and not counted as absences.
 - **To review** (red number = how many people): faces the camera could not identify.
   - **Grouping:** photos that look like the same person are grouped ("Seen 6 times"), so each person is named only once.
-  - **Naming a group:** click **"✓ It's …"** for the suggested person, pick someone from the list, or click **+ New employee** to create them on the spot (the next id is suggested).
-  - **What confirming does:** records the person's arrival on every day they were seen and teaches the system up to 5 of their photos.
-  - **Not an employee · ignore today:** hides a visitor for the rest of the day, including if they pass the camera again. If they come back on another day they are shown again; nothing is ignored for good. Ignored faces are listed under *Ignored today*, with a **Restore** button in case of a mistake.
+  - **Naming a group:** click a face (or *Who is this?*) to open a small window with its photos: click **"✓ It's …"** for the suggested person, pick someone from the list, or open **+ New employee** to create them on the spot (the next id is suggested). The link in Google Chat opens this window for the first face straight away.
+  - **What confirming does:** records the person's arrival on every day they were seen and teaches the system up to 5 of their photos (Settings → Recognition → Advanced).
+  - **Skip · not an employee:** hides a visitor for the rest of the day, including if they pass the camera again. If they come back on another day they are shown again; nothing is ignored for good. Ignored faces are listed under *Ignored today*, with a **Restore** button in case of a mistake. Closing the window decides nothing; the face stays in the list.
 
   **Starting without any photos:** let the camera run for a day or two. Everyone who passes appears here; name each person once, and from then on the camera recognises them. Upload extra photos later for people it still finds hard.
 - **Employees:** search, add, or import from CSV. Open a person to drag and drop their photos (with a preview before uploading), see their upcoming leave, or stop tracking them.
 - **Live camera:** what the camera sees, with faces labelled; outside camera hours, turn it on for 15 minutes to adjust its position.
   - **Detection area:** click *Select area*, drag over the walkway on the picture and *Save area*. Only that part is analysed (the rest is dimmed): faces get bigger for the detector, which helps most with a camera that sees a wide room, and people sitting elsewhere are ignored. *Use whole picture* undoes it.
 - **Accuracy:** how well the camera is doing, measured from your corrections on the Today page: the share of identifications that were the wrong person, the share of arrivals it did not recognise, mix-ups (who was taken for whom), and the people who need more photos. Use it to see whether a change of camera position, photos or settings helped.
-- **Settings:** working hours, Google Chat (with a test button), HR system, camera, password and privacy. Rarely needed recognition values are under *Advanced*.
+- **Settings:** working hours, Google Chat (with a test button), HR system, camera, password and privacy. Rarely needed recognition values are under *Advanced*, including how faces are learned and grouped for review: whether moved sightings are learned, photos learned per confirmed group, how many days look-alike unknown faces are grouped over, and the *already-seen score* above which an unclear face resembling someone checked in today is not sent for review (0 = always review).
 - **Change log:** every change made on the page, with who made it and when; searchable.
 
 ## HR system API
@@ -437,7 +437,7 @@ Lessons built into the settings:
 3. **Several references per person:** a person's score is the mean of their two closest reference photos.
 4. **Clear margin:** the best match must beat the runner-up by a margin.
 5. **Several frames must agree:** at least twice as many votes as everyone else combined. A track that ends one vote short is still accepted when all its votes agree and the match is very strong (fast walkers).
-6. **No guessing:** everything else goes to the admin, and each confirmation teaches the system that face.
+6. **No guessing:** everything else goes to the admin, and each confirmation teaches the system that face; so does a sighting moved to the right person on the Today page.
 7. **Look-alike check:** employees whose photos match each other are flagged before they cause mix-ups.
 8. **Varied references:** reference photos are enrolled together with their mirror image, and a confirmed face that is almost identical (≥ 97%) to one already kept is not stored again.
 9. **Sharpest frame:** of the frames that arrived since the last one analysed, the one where the faces are sharpest is used (Wi-Fi cameras and people walking give many blurred frames).

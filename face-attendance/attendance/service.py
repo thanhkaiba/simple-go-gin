@@ -31,12 +31,6 @@ log = logging.getLogger(__name__)
 GAP = dt.timedelta(seconds=60)  # no frames for longer than this counts as an outage
 ALIVE_SAVE_EVERY = dt.timedelta(seconds=10)
 FLUSH_EVERY = dt.timedelta(seconds=30)
-# An unknown face that resembles someone already checked in today is most likely that person
-# walking past again at a bad angle; reporting it would only create work for the admin.
-ALREADY_SEEN_SIMILARITY = 0.3
-GROUP_WITHIN = dt.timedelta(days=14)  # unknown faces are grouped with similar ones seen this recently
-MAX_LEARNED_PER_GROUP = 5  # reference photos taken from one confirmed group
-
 SOURCES = {"camera": "Camera", "admin": "Admin confirmed photo", "manual": "Entered by admin",
            "corrected": "Corrected by admin"}
 
@@ -161,8 +155,10 @@ class AttendanceService:
     def _local(self, ts: dt.datetime) -> dt.datetime:
         return ts.astimezone(self.tz)
 
-    def _link(self, path: str = "") -> str:
-        return self.cfg.web.public_url.rstrip("/") + path
+    def _link(self, path: str = "", text: str | None = None) -> str:
+        """The admin page's address; with `text`, as a Google Chat link showing that text."""
+        url = self.cfg.web.public_url.rstrip("/") + path
+        return f"<{url}|{text}>" if text else url
 
     def _send(self, text: str, day: dt.date) -> None:
         self.chat.send(text, f"attendance-{day.isoformat()}", self.now())
@@ -229,9 +225,13 @@ class AttendanceService:
 
     # events from the camera pipeline ----------------------------------------------
 
-    def on_identified(self, employee_id: str, ts: dt.datetime, score: float, image: str | None) -> None:
+    def on_identified(self, employee_id: str, ts: dt.datetime, score: float, image: str | None,
+                      vector: np.ndarray | None = None) -> None:
+        """The camera identified someone. The face embedding is kept with the sighting, so that
+        if the admin later moves it to the right person, that person's face can be learned."""
         ts = self._local(ts)
-        result = self.store.record_checkin(ts.date(), employee_id, ts, "camera", score, image)
+        result = self.store.record_checkin(ts.date(), employee_id, ts, "camera", score, image,
+                                           self.model_id if vector is not None else None, vector)
         log.info("Identified %s at %s (score %.2f): %s", employee_id, ts.strftime("%H:%M:%S"), score, result)
         if result == "new":
             self._announce(employee_id, ts, suffix="")
@@ -239,7 +239,8 @@ class AttendanceService:
     def on_unknown(self, ts: dt.datetime, image: str | None, vector: np.ndarray | None,
                    guess_id: str | None, guess_score: float | None) -> int | None:
         ts = self._local(ts)
-        if (guess_id and guess_score is not None and guess_score >= ALREADY_SEEN_SIMILARITY
+        seen_again = self.cfg.recognition.seen_again_score  # 0 switches this off
+        if (guess_id and guess_score is not None and seen_again and guess_score >= seen_again
                 and guess_id in self.store.checkins(ts.date())):
             log.info("Unclear face at %s resembles %s, who is already checked in; not reported",
                      ts.strftime("%H:%M:%S"), guess_id)
@@ -263,8 +264,9 @@ class AttendanceService:
         candidates = [(u, False) for u in self.store.unknowns()]
         candidates += [(u, True) for g in self.store.ignored_groups(ts.date()) for u in g]
         best, best_ignored, best_score = None, False, self.cfg.recognition.accept_score
+        within = dt.timedelta(days=self.cfg.recognition.group_days)
         for u, ignored in candidates:
-            if u.vector is None or u.model != self.model_id or ts - self._local(u.ts) > GROUP_WITHIN:
+            if u.vector is None or u.model != self.model_id or ts - self._local(u.ts) > within:
                 continue
             score = float(np.dot(v, self.gallery.prepare(u.vector)))
             if score >= best_score:
@@ -289,14 +291,10 @@ class AttendanceService:
         self.store.resolve_group(members[0].group_id, "assigned", employee_id)
         with_vector = [u for u in members if u.vector is not None and u.model]
         # Learn a few faces spread over the group (different visits, angles and light).
-        step = max(1, len(with_vector) // MAX_LEARNED_PER_GROUP)
-        for u in with_vector[::step][:MAX_LEARNED_PER_GROUP]:
-            if self.library is not None:
-                self.library.learn(employee_id, u.vector, u.image, u.model)
-            else:
-                self.store.add_embedding(u.model, employee_id, u.vector, "admin", self.now())
-                if u.model == self.model_id:
-                    self.gallery.add(employee_id, u.vector)
+        per_group = self.cfg.recognition.learn_per_group
+        step = max(1, len(with_vector) // per_group)
+        for u in with_vector[::step][:per_group]:
+            self._learn(employee_id, u.vector, u.image, u.model)
         today = self.now().date()
         for u in members:
             ts = self._local(u.ts)
@@ -307,6 +305,15 @@ class AttendanceService:
         when = ", ".join(sorted({f"{self._local(u.ts):%Y-%m-%d %H:%M}" for u in members})[:5])
         more = f" (+{len(members) - 5} more)" if len(members) > 5 else ""
         self.store.log(self.now(), user, "confirm face", f"{self._name(employee_id)}: {when}{more}")
+
+    def _learn(self, employee_id: str, vector: np.ndarray, image: str | None, model: str) -> bool:
+        """Keep a face the admin confirmed as a reference photo of `employee_id`."""
+        if self.library is not None:
+            return self.library.learn(employee_id, vector, image, model)
+        self.store.add_embedding(model, employee_id, vector, "admin", self.now())
+        if model == self.model_id:
+            self.gallery.add(employee_id, vector)
+        return True
 
     def add_employee_from_unknown(self, unknown_id: int, employee_id: str, name: str, user: str = "admin") -> None:
         """Create a new employee from a face the camera collected, and confirm it as them."""
@@ -341,14 +348,14 @@ class AttendanceService:
         self.store.log(self.now(), user, "set arrival", f"{day} {self._name(employee_id)} {time:%H:%M}{before}")
         self._announce(employee_id, ts, suffix=" (entered by admin)")
 
-    def reassign_arrival(self, day: dt.date, from_id: str, to_id: str, user: str = "admin") -> None:
+    def reassign_arrival(self, day: dt.date, from_id: str, to_id: str, user: str = "admin") -> bool:
         """The camera recorded the wrong person: move the sighting the arrival came from (time and
         photo) to the right one. The first person's arrival is then recomputed from their other
-        sightings, so if they really came later that time counts."""
+        sightings, so if they really came later that time counts. Returns whether a face was learned."""
         s = self.store.arrival_sighting(day, from_id)
         if s is None:
             raise ValueError("there is no arrival to move")
-        self.move_sighting(s.id, to_id, user, action="reassign arrival")
+        return self.move_sighting(s.id, to_id, user, action="reassign arrival")
 
     def delete_arrival(self, day: dt.date, employee_id: str, user: str = "admin") -> None:
         c = self.store.delete_checkin(day, employee_id)
@@ -357,8 +364,10 @@ class AttendanceService:
         self.store.log(self.now(), user, "delete arrival",
                        f"{day} {self._name(employee_id)} {self._local(c.first_seen):%H:%M}")
 
-    def move_sighting(self, sighting_id: int, to_id: str, user: str = "admin", action: str = "move sighting") -> None:
-        """One sighting was someone else."""
+    def move_sighting(self, sighting_id: int, to_id: str, user: str = "admin", action: str = "move sighting") -> bool:
+        """One sighting was someone else. The admin has just confirmed whose face it is, so it is
+        also learned as a reference photo of that person (these are the faces the camera found
+        hardest). Returns whether a face was learned."""
         s = self.store.sighting(sighting_id)
         if s is None:
             raise ValueError("this sighting no longer exists")
@@ -366,8 +375,11 @@ class AttendanceService:
             raise ValueError(f"unknown employee {to_id}")
         if to_id == s.employee_id:
             raise ValueError("choose a different employee")
-        self._correct(s, f"{self._name(s.employee_id)} -> {self._name(to_id)}", action, user,
-                      employee_id=to_id, status="ok")
+        learned = (self.cfg.recognition.learn_corrections and s.vector is not None and s.model is not None
+                   and self._learn(to_id, s.vector, s.image, s.model))
+        self._correct(s, f"{self._name(s.employee_id)} -> {self._name(to_id)}{' (face learned)' if learned else ''}",
+                      action, user, employee_id=to_id, status="ok")
+        return learned
 
     def reject_sighting(self, sighting_id: int, user: str = "admin") -> None:
         """One sighting was not this person (and nobody in particular, e.g. a visitor)."""
@@ -481,8 +493,8 @@ class AttendanceService:
             lines = [f"⏰ *{w.late_after:%H:%M}: {len(rep.not_seen)}/{rep.total} people not seen yet* (counted as late):"]
             lines += [f"• {self.who(emp_id, name)}" for emp_id, name in rep.not_seen]
         if rep.pending_unknowns:
-            lines.append(f"❓ {rep.pending_unknowns} unidentified faces, possibly people on this list. "
-                         f"Review: {self._link('/unknowns')}")
+            lines.append(f"❓ {rep.pending_unknowns} unidentified faces, possibly people on this list · "
+                         f"{self._link('/unknowns?review=first', 'Review')}")
         lines += self._extra_lines(rep)
         lines.append(f"Details: {self._link('/')}")
         return "\n".join(lines)
@@ -501,7 +513,8 @@ class AttendanceService:
             lines.append(f"*Not seen on camera between {w.start:%H:%M} and {w.end:%H:%M}:*")
             lines += [f"• {name}" for _, name in rep.not_seen]
         if rep.pending_unknowns:
-            lines.append(f"❓ {rep.pending_unknowns} unidentified faces to review: {self._link('/unknowns')}")
+            lines.append(f"❓ {rep.pending_unknowns} unidentified faces to review · "
+                         f"{self._link('/unknowns?review=first', 'Review')}")
         lines += self._extra_lines(rep)
         lines.append(f"Details: {self._link('/')}")
         return "\n".join(lines)
@@ -543,8 +556,8 @@ class AttendanceService:
         people = len({u.group_id for u in unknowns})
         times = ", ".join(self._local(u.ts).strftime("%H:%M") for u in unknowns[:10])
         who = "1 face" if people == 1 else f"{people} different faces"
-        return (f"❓ {who} to review, seen at {times}{'…' if len(unknowns) > 10 else ''}. "
-                f"Please say who it is: {self._link('/unknowns')}")
+        return (f"❓ {who} to review, seen at {times}{'…' if len(unknowns) > 10 else ''} · "
+                f"{self._link('/unknowns?review=first', 'Say who it is')}")
 
     # scheduler -----------------------------------------------------------------
 

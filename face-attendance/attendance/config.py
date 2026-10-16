@@ -113,6 +113,13 @@ class RecognitionConfig:
     votes_required: int = 3
     track_timeout_s: float = 1.5
     unknown_min_frames: int = 3
+    # Review and learning. Faces named on the review page are always learned; these tune the rest.
+    learn_corrections: bool = True  # also learn a face the admin moves to the right person on the Today page
+    learn_per_group: int = 5  # reference photos taken from one confirmed group of unknown faces
+    group_days: int = 14  # unknown faces are grouped with similar ones seen this recently
+    # An unclear face at least this similar to someone already checked in today is taken to be that
+    # person passing again at a bad angle, and is not sent for review.
+    seen_again_score: float = 0.3
 
     def model_files(self) -> tuple[str, str]:
         default_det, default_rec = DEFAULT_MODELS.get(self.backend, ("", ""))
@@ -217,6 +224,10 @@ class Config:
             raise ValueError("accept_score, min_margin and min_det_score must be between 0 and 1")
         if r.votes_required < 1 or r.unknown_min_frames < 1 or r.min_face_px < 1:
             raise ValueError("votes_required, unknown_min_frames and min_face_px must be at least 1")
+        if r.learn_per_group < 1 or r.group_days < 1:
+            raise ValueError("learn_per_group and group_days must be at least 1")
+        if not 0 <= r.seen_again_score < 1:
+            raise ValueError("seen_again_score must be between 0 and 1")
         if not 0 < self.camera.process_fps <= 30:
             raise ValueError("process_fps must be between 0 and 30")
         if r.det_size < 160 or (r.backend == "insightface" and r.det_size % 32):

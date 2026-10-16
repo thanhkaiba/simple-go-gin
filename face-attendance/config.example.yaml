@@ -48,6 +48,11 @@ recognition:
   votes_required: 3       # frames that must agree before a person is identified
   track_timeout_s: 1.5
   unknown_min_frames: 3   # faces seen in fewer frames than this are ignored instead of reported
+  # Review and learning (also under Settings -> Recognition -> Advanced)
+  learn_corrections: true # a face moved to the right person on the Today page is learned as a reference photo
+  learn_per_group: 5      # reference photos taken from one confirmed group of faces on the review page
+  group_days: 14          # unknown faces are grouped with similar ones seen this recently
+  seen_again_score: 0.3   # an unclear face this similar to someone already checked in today is not sent for review
 
 tracking:
   # face:   follow faces between frames (light; fine for one or two people at a time).
