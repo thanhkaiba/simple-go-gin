@@ -78,11 +78,11 @@
       const url = input.value.trim(), mine = ++seq;
       if (!url) { box.hidden = true; return; }
       box.hidden = false; box.className = 'cam-status';
-      box.innerHTML = '<span class="spin"></span><span>Checking the camera… (up to 10 seconds)</span>';
+      box.innerHTML = '<span class="spin"></span><span>Checking the camera… (≤ 10 s)</span>';
       let r;
       try {
         r = await (await fetch(urls.cameraCheckUrl, { method: 'POST', body: new URLSearchParams({ url }) })).json();
-      } catch (e) { r = { level: 'error', message: 'Could not ask the program to check the camera.' }; }
+      } catch (e) { r = { level: 'error', message: 'Could not reach the program.' }; }
       if (mine !== seq) return;  // a newer address was typed meanwhile
       box.className = 'cam-status ' + r.level;
       box.replaceChildren();
@@ -105,8 +105,8 @@
     const poll = setInterval(async () => {
       try {
         const s = (await (await fetch(urls.modelsUrl)).json()).status;
-        if (s) { modelsBox.lastElementChild.textContent = s + '. Faces are recognised once it has finished; everything else works already.'; return; }
-        clearInterval(poll); modelsBox.className = 'alert ok'; modelsBox.textContent = 'Face recognition models are ready.';
+        if (s) { modelsBox.lastElementChild.textContent = s + ' · faces are recognised once done; everything else already works.'; return; }
+        clearInterval(poll); modelsBox.className = 'alert ok'; modelsBox.textContent = 'Face recognition is ready.';
       } catch (e) {}
     }, 2000);
   }

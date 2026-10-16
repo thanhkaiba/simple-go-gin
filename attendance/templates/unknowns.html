@@ -3,15 +3,13 @@
 {% block body %}
 <div class="page-head">
   <div>
-    <h1>Faces to review</h1>
-    <p class="subtitle">People the camera could not identify. Photos that look like the same person are grouped, so
-      you only name each person once. Click a person to say who it is.</p>
+    <h1>Review</h1>
+    <p class="subtitle">Faces the camera could not identify, grouped by person. Click one to name it.</p>
   </div>
-  {% if groups %}<div class="actions"><span class="badge bad">{{ groups|length }} to review</span></div>{% endif %}
+  {% if groups %}<div class="actions"><span class="badge bad" title="{{ groups|length }} to review">{{ groups|length }}</span></div>{% endif %}
 </div>
 {% if no_photos %}
-  <div class="alert info"><span class="ico">{{ icon('sparkles') }}</span><span><strong>Starting without photos?</strong> Just let the camera run: everyone who passes
-    appears here. Name each person once (or add them as a new employee) and the camera recognises them from then on.</span></div>
+  <div class="alert info"><span class="ico">{{ icon('sparkles') }}</span><span><strong>No photos yet?</strong> Let the camera run; name each person here once and it recognises them from then on.</span></div>
 {% endif %}
 {% if groups %}
 <div class="face-grid">
@@ -30,35 +28,35 @@
     <div class="pic">
       {% if g.body %}<img class="body" src="{{ url_for('media', path=g.body) }}" alt="" loading="lazy">
       {% elif g.photos %}<img class="face" src="{{ url_for('media', path=g.photos[0]) }}" alt="" loading="lazy">{% endif %}
-      {% if g.members|length > 1 %}<span class="badge plain">Seen {{ g.members|length }} times</span>{% endif %}
+      {% if g.members|length > 1 %}<span class="badge plain" title="Seen {{ g.members|length }} times">{{ icon('eye') }}{{ g.members|length }}</span>{% endif %}
     </div>
     {% set thumbs = g.photos if g.body else g.photos[1:] %}
     {% if thumbs %}<div class="thumbs">{% for p in thumbs[:4] %}<img src="{{ url_for('media', path=p) }}" alt="" loading="lazy">{% endfor %}</div>{% endif %}
     <div class="body">
       <div class="small muted tnum">{{ local(last.ts).strftime('%a %d %b %H:%M') }}</div>
       {% if guess %}<div class="small">Looks like <strong>{{ guess }}</strong> <span class="muted">({{ '%.0f'|format(g.guess_score * 100) }}%)</span></div>{% endif %}
-      <button type="button" class="primary btn-sm btn-block">Who is this?</button>
+      <button type="button" class="primary btn-sm btn-block">{{ icon('help') }}Who is this?</button>
     </div>
   </div>
   {% endfor %}
 </div>
 {% else %}
-<div class="card empty-state"><span class="ico">{{ icon('smile') }}</span><strong>Nothing to review.</strong><span>Every face the camera saw has been identified.</span></div>
+<div class="card empty-state"><span class="ico">{{ icon('smile') }}</span><strong>Nothing to review.</strong></div>
 {% endif %}
 
 {% if ignored %}
 <details class="panel" style="margin-top:20px">
   <summary>Ignored today ({{ ignored|length }})</summary>
   <div>
-    <p class="hint" style="margin-top:0">These faces are hidden until the end of today, including if they pass the camera
-      again. Tomorrow they are shown again if seen. Restore one if it was ignored by mistake.</p>
+    <p class="hint" style="margin-top:0">Hidden until tomorrow, even if they pass again. Restore one if it was a mistake.</p>
     <div class="face-grid" style="grid-template-columns: repeat(auto-fill, minmax(140px, 1fr))">
       {% for g in ignored %}
       <div class="face-card" style="cursor:default; opacity:.85">
-        <div class="pic">{% if g.photo %}<img class="face" src="{{ url_for('media', path=g.photo) }}" alt="" loading="lazy">{% endif %}</div>
+        <div class="pic">{% if g.photo %}<img class="face" src="{{ url_for('media', path=g.photo) }}" alt="" loading="lazy">{% endif %}
+          {% if g.count > 1 %}<span class="badge plain" title="Seen {{ g.count }} times">{{ icon('eye') }}{{ g.count }}</span>{% endif %}</div>
         <div class="body">
-          <span class="small muted tnum">{{ local(g.latest.ts).strftime('%H:%M') }}{% if g.count > 1 %} · seen {{ g.count }} times{% endif %}</span>
-          <form method="post" action="{{ url_for('restore', unknown_id=g.id) }}"><button class="btn-sm btn-block">{{ icon('refresh') }}Restore</button></form>
+          <span class="small muted tnum">{{ local(g.latest.ts).strftime('%H:%M') }}</span>
+          <form method="post" action="{{ url_for('restore', unknown_id=g.id) }}"><button class="btn-sm btn-block">{{ icon('undo') }}Restore</button></form>
         </div>
       </div>
       {% endfor %}
@@ -88,26 +86,23 @@
           <option value="">Choose a person…</option>
           {% for id, name in employees.items() %}<option value="{{ id }}">{{ name }}</option>{% endfor %}
         </select>
-        <button>Confirm</button>
+        <button title="Records their arrival on every day seen and learns the face">{{ icon('check') }}Confirm</button>
       </div>
-      <span class="hint">Records their arrival on every day they were seen and learns their face.</span>
     </form>
     {% endif %}
     <details class="inline" id="new-employee"{% if not employees %} open{% endif %}>
-      <summary>{{ icon('plus') }} New employee</summary>
+      <summary>{{ icon('user-plus') }} New employee</summary>
       <form method="post" id="form-new" style="margin-top:8px">
         <div class="form-row">
-          <input name="id" required placeholder="Employee id" value="{{ next_id }}" style="width:130px">
+          <input name="id" required placeholder="ID" value="{{ next_id }}" style="width:130px">
           <input name="name" required placeholder="Full name" style="flex:1 1 160px">
         </div>
-        <div><button class="{{ 'primary' if not employees }}">Add &amp; confirm</button></div>
+        <div><button class="{{ 'primary' if not employees }}">{{ icon('user-plus') }}Add &amp; confirm</button></div>
       </form>
     </details>
     <div class="divider" style="margin:0"></div>
     <form method="post" id="form-skip">
-      <button class="btn-block">Skip · not an employee</button>
-      <span class="hint">Hidden for the rest of today, including if they pass the camera again; shown again if seen on another day.
-        Close this window to decide later.</span>
+      <button class="btn-block" title="Hidden for the rest of today; shown again if seen another day">{{ icon('user-x') }}Skip · not an employee</button>
     </form>
   </div>
 </dialog>
@@ -137,7 +132,7 @@
     guess.action = url(urls.assign);
     document.getElementById('guess-id').value = d.guess;
     document.getElementById('guess-button').textContent = '✓ It\'s ' + d.guessName;
-    document.getElementById('guess-hint').textContent = 'Looks like ' + d.guessName + ' (' + d.score + '% match).';
+    document.getElementById('guess-hint').textContent = d.score + '% match';
     const pick = document.getElementById('form-pick');
     if (pick) {
       pick.action = url(urls.assign);

@@ -5,7 +5,10 @@
 <div class="page-head">
   <div>
     <h1>Recognition accuracy</h1>
-    <p class="subtitle">{{ acc.start.strftime('%d %b %Y') }} – {{ acc.end.strftime('%d %b %Y') }} · measured from the corrections made on the Today page</p>
+    <div class="chips">
+      <span class="chip">{{ icon('calendar') }}{{ acc.start.strftime('%d %b %Y') }} – {{ acc.end.strftime('%d %b %Y') }}</span>
+      <span class="chip" title="Measured from the corrections made on the Today page">{{ icon('edit') }}from Today-page corrections</span>
+    </div>
   </div>
 </div>
 
@@ -16,31 +19,34 @@
     {% endfor %}
   </div>
   <form class="row" method="get">
-    <input type="date" name="start" value="{{ acc.start.isoformat() }}" aria-label="From"> <span class="muted">to</span> <input type="date" name="end" value="{{ acc.end.isoformat() }}" aria-label="To">
-    <button>Show</button>
+    <input type="date" name="start" value="{{ acc.start.isoformat() }}" aria-label="From"> <span class="muted">–</span> <input type="date" name="end" value="{{ acc.end.isoformat() }}" aria-label="To">
+    <button class="icon" title="Show" aria-label="Show">{{ icon('chevron-right') }}</button>
   </form>
 </div>
 
 <div class="tiles">
-  <div class="tile brand"><div class="n">{{ acc.identified }}</div><div class="l">Identifications by the camera</div></div>
-  <div class="tile bad"><div class="n">{{ pct(acc.wrong, acc.identified) }}</div><div class="l">Wrong person ({{ acc.wrong }})</div></div>
-  <div class="tile late"><div class="n">{{ pct(acc.missed, acc.arrivals) }}</div><div class="l">Arrivals not recognised ({{ acc.missed }}/{{ acc.arrivals }})</div></div>
-  <div class="tile info"><div class="n">{{ acc.unknown_faces }}</div><div class="l">Faces sent for review</div></div>
+  <div class="tile brand"><div class="n">{{ acc.identified }}</div><div class="l">Identified by camera</div></div>
+  <div class="tile bad"><div class="n">{{ pct(acc.wrong, acc.identified) }}</div><div class="l">Wrong person · {{ acc.wrong }}</div></div>
+  <div class="tile late"><div class="n">{{ pct(acc.missed, acc.arrivals) }}</div><div class="l">Not recognised · {{ acc.missed }}/{{ acc.arrivals }}</div></div>
+  <div class="tile info"><div class="n">{{ acc.unknown_faces }}</div><div class="l">Sent to review</div></div>
 </div>
 
-<p class="hint" style="margin-bottom:18px">
-  <b>Wrong person</b>: identifications an admin moved to someone else or removed ("Not them").
-  <b>Not recognised</b>: arrivals that had to be typed in or came only from naming a face on the review page.
-  These numbers are only as good as the corrections: check the Today page every day while you start.
-  To choose better settings from the same data, run <code>python -m attendance evaluate --from-data</code>.
-</p>
+<details class="inline" style="margin-bottom:18px">
+  <summary>{{ icon('help') }} How this is measured</summary>
+  <p class="hint" style="margin:6px 0 0">
+    <b>Wrong person</b>: identifications moved to someone else or marked "Not them".
+    <b>Not recognised</b>: arrivals typed in or named on the Review page.
+    Only as good as the corrections: check the Today page daily while starting.
+    Better settings from the same data: <code>python -m attendance evaluate --from-data</code>.
+  </p>
+</details>
 
 {% if acc.people %}
 <div class="card flush">
-  <div class="card-head" style="padding:16px 20px 0"><h2>People who need attention</h2></div>
+  <div class="card-head" style="padding:16px 20px 0"><h2 class="row">{{ icon('alert') }}People who need attention</h2></div>
   <div class="table-wrap" style="border:0; border-radius:0; box-shadow:none">
     <table>
-      <thead><tr><th>Person</th><th class="num">Photos</th><th class="num">Not recognised</th><th class="num">Taken for someone else</th><th class="num">Others taken for them</th><th>Suggestion</th></tr></thead>
+      <thead><tr><th>Person</th><th class="num">Photos</th><th class="num">Missed</th><th class="num" title="Taken for someone else">As other</th><th class="num" title="Others taken for them">Others as them</th><th>Suggestion</th></tr></thead>
       <tbody>
       {% for p in acc.people %}
         <tr>
@@ -60,10 +66,10 @@
 
 {% if acc.confusions %}
 <div class="card flush">
-  <div class="card-head" style="padding:16px 20px 0"><h2>Mix-ups</h2></div>
+  <div class="card-head" style="padding:16px 20px 0"><h2 class="row">{{ icon('swap') }}Mix-ups</h2></div>
   <div class="table-wrap" style="border:0; border-radius:0; box-shadow:none">
     <table>
-      <thead><tr><th>The camera said</th><th>It really was</th><th class="num">Times</th></tr></thead>
+      <thead><tr><th>Camera said</th><th>Really was</th><th class="num">Times</th></tr></thead>
       <tbody>
       {% for said, really, n in acc.confusions %}
         <tr><td>{{ names.get(said, said) }}</td><td>{{ names.get(really, really) if really else 'not them (visitor or unclear)' }}</td><td class="num">{{ n }}</td></tr>
@@ -75,11 +81,11 @@
 {% endif %}
 
 <div class="card flush">
-  <div class="card-head" style="padding:16px 20px 0"><h2>Day by day</h2></div>
+  <div class="card-head" style="padding:16px 20px 0"><h2 class="row">{{ icon('calendar') }}Day by day</h2></div>
   {% if acc.days %}
   <div class="table-wrap" style="border:0; border-radius:0; box-shadow:none">
     <table>
-      <thead><tr><th>Day</th><th class="num">Identified</th><th class="num">Wrong</th><th class="num">Arrivals</th><th class="num">Not recognised</th><th class="num">Faces to review</th></tr></thead>
+      <thead><tr><th>Day</th><th class="num">Identified</th><th class="num">Wrong</th><th class="num">Arrivals</th><th class="num">Missed</th><th class="num">To review</th></tr></thead>
       <tbody>
       {% for d in acc.days|reverse %}
         <tr>

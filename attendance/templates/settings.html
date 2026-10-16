@@ -19,93 +19,89 @@
 {% endmacro %}
 {% block body %}
 <div class="page-head">
-  <div><h1>Settings</h1><p class="subtitle">Changes apply as soon as you save; no restart needed.</p></div>
+  <div><h1>Settings</h1><div class="chips"><span class="chip" title="Changes apply as soon as you save; no restart needed">{{ icon('check-circle') }}applied on save</span></div></div>
 </div>
 
 {% if setup_open %}
 <a class="card setup-banner" href="{{ url_for('setup_page') }}">
   <span class="setup-ring">{{ setup_open }}</span>
-  <span><strong>Finish setting up</strong><br><span class="hint">{{ setup_open }} step{{ 's' if setup_open > 1 }} left, about a minute each</span></span>
-  <span class="btn primary" style="margin-left:auto">Continue →</span>
+  <span><strong>Finish setup</strong><br><span class="hint">{{ setup_open }} step{{ 's' if setup_open > 1 }} left · about a minute each</span></span>
+  <span class="btn primary" style="margin-left:auto">Continue {{ icon('chevron-right') }}</span>
 </a>
 {% endif %}
 
-<nav class="seg" id="tabs">
-  <button type="button" data-tab="hours">Working hours</button>
-  <button type="button" data-tab="notify">Notifications</button>
-  <button type="button" data-tab="camera">Camera</button>
-  <button type="button" data-tab="admin">Access</button>
-  <button type="button" data-tab="hr">HR system</button>
-  <button type="button" data-tab="recognition">Recognition</button>
+<nav class="seg icons" id="tabs">
+  <button type="button" data-tab="hours" title="Working hours">{{ icon('clock') }}<span class="lbl">Working hours</span></button>
+  <button type="button" data-tab="notify" title="Notifications">{{ icon('chat') }}<span class="lbl">Notifications</span></button>
+  <button type="button" data-tab="camera" title="Camera">{{ icon('camera') }}<span class="lbl">Camera</span></button>
+  <button type="button" data-tab="admin" title="Access">{{ icon('shield') }}<span class="lbl">Access</span></button>
+  <button type="button" data-tab="hr" title="HR system">{{ icon('hr') }}<span class="lbl">HR system</span></button>
+  <button type="button" data-tab="recognition" title="Recognition">{{ icon('accuracy') }}<span class="lbl">Recognition</span></button>
 </nav>
 
 <form method="post" action="{{ url_for('save_settings') }}" id="settings">
   <input type="hidden" name="back" value="{{ url_for('settings_page') }}">
 
   <section class="card tab" id="hours">
-    <h2>Working hours</h2>
+    <h2 class="row">{{ icon('clock') }}Working hours</h2>
     <div class="timeline">
       {{ time24('schedule', 'window_start', 'Camera starts') }}
       <span class="arrow">→</span>
-      {{ time24('schedule', 'late_after', 'Late from', 'Seen at or after this = late') }}
+      {{ time24('schedule', 'late_after', 'Late from', 'At or after = late') }}
       <span class="arrow">→</span>
-      {{ time24('schedule', 'window_end', 'Camera stops', 'Daily summary is sent') }}
+      {{ time24('schedule', 'window_end', 'Camera stops', 'Summary is sent') }}
     </div>
-    <p class="hint" style="margin:6px 0 20px">24-hour clock: type <code>0830</code> or <code>8:30</code>; ↑ ↓ change it by 5 minutes.</p>
+    <p class="hint" style="margin:6px 0 20px">Type <code>0830</code> or <code>8:30</code> · ↑ ↓ = ±5 min</p>
     <p style="margin:0 0 8px; font-weight:500">Work days</p>
     <div class="days">
       {% for d in range(7) %}<label><input type="checkbox" name="schedule.work_days" value="{{ d }}" {{ 'checked' if d in s.schedule.work_days }}><span>{{ WEEKDAYS[d] }}</span></label>{% endfor %}
     </div>
-    <p class="hint" style="margin:14px 0 0">Holidays, make-up work days and leave come from the HR system.
-      People who arrive before the camera starts are only counted if they pass it again later.
-      When everyone is in before the late time, no list is posted at that time.</p>
+    <p class="hint" style="margin:14px 0 0">Holidays and leave come from the HR system. Arrivals before the camera starts count only if the person passes again.</p>
   </section>
 
   <section class="card tab" id="notify">
-    <h2>Google Chat</h2>
+    <h2 class="row">{{ icon('chat') }}Google Chat</h2>
     <div class="form-row">
       <label class="field grow">Webhook URL<input name="google_chat.webhook_url" value="{{ s.google_chat.webhook_url }}" placeholder="https://chat.googleapis.com/v1/spaces/…">
-        <span class="hint">In the space: space name → Apps &amp; integrations → Webhooks → Add webhook</span></label>
-      <button formaction="{{ url_for('test_chat') }}">{{ icon('send') }}Send test message</button>
+        <span class="hint">Space name → Apps &amp; integrations → Webhooks → Add</span></label>
+      <button formaction="{{ url_for('test_chat') }}" title="Send a test message to the space">{{ icon('send') }}Test</button>
     </div>
     <div class="stack">
-      {{ check('google_chat', 'mention_people', '@mention people in late and not-seen alerts') }}
+      {{ check('google_chat', 'mention_people', '@mention people in alerts') }}
       {{ check('google_chat', 'notify_late_arrivals', 'Post each late arrival as it happens') }}
     </div>
-    {{ field('google_chat', 'unknown_batch_minutes', 'Group "faces to review" notices every (minutes)', type='number') }}
+    {{ field('google_chat', 'unknown_batch_minutes', 'Batch "faces to review" notices (min)', type='number') }}
 
     <hr>
-    <h2>Daily late message</h2>
-    <p class="hint" style="margin-top:0">One message a day listing who came late, e.g. "Morning, coming late today: @Jennie Luu (10:15)".
-      Mentions need each employee's Google Chat user ID (People page).</p>
+    <h2 class="row">{{ icon('send') }}Daily late message</h2>
+    <p class="hint" style="margin-top:0">E.g. "Morning, coming late today: @Jennie Luu (10:15)". Mentions need each person's Chat ID (People page).</p>
     <div class="stack">{{ check('late_message', 'enabled', 'Post the daily late message') }}</div>
     <div class="form-row">
-      <label class="field grow">Message starts with<input name="late_message.intro" value="{{ s.late_message.intro }}"></label>
-      <label class="field grow">Each person<input name="late_message.item" value="{{ s.late_message.item }}">
-        <span class="hint">Use {mention}, {name}, {time} and {minutes} (minutes late).</span></label>
+      <label class="field grow">Intro<input name="late_message.intro" value="{{ s.late_message.intro }}"></label>
+      <label class="field grow">Per person<input name="late_message.item" value="{{ s.late_message.item }}">
+        <span class="hint">{mention} {name} {time} {minutes}</span></label>
     </div>
     <div class="form-row" style="margin-top:14px; align-items:center">
       {{ check('late_message', 'auto_send', 'Send automatically at') }}
       {{ time24('late_message', 'send_at', '', required=false) }}
-      <span class="hint">Empty = when the camera stops. Must be after the late time.</span>
+      <span class="hint">Empty = when the camera stops · must be after the late time</span>
     </div>
   </section>
 
   <section class="card tab" id="camera">
-    <h2>Camera</h2>
+    <h2 class="row">{{ icon('camera') }}Camera</h2>
     <div class="form-row">
-      <label class="field grow">Camera address (RTSP)
+      <label class="field grow">RTSP address
         <input name="camera.url" value="{{ s.camera.url }}" placeholder="rtsp://admin:CODE@192.168.1.64:554/Streaming/Channels/101" data-camera-check="auto">
-        <span class="hint">Ezviz: rtsp://admin:&lt;6-letter code on the label&gt;@&lt;camera IP&gt;:554/Streaming/Channels/101 ·
-          check it on the <a href="{{ url_for('live_page') }}">Camera</a> page</span></label>
-      {{ field('camera', 'process_fps', 'Frames per second', 'Lower if the computer is slow', type='number', step='0.5') }}
+        <span class="hint">Ezviz: rtsp://admin:&lt;6-letter code on the label&gt;@&lt;camera IP&gt;:554/Streaming/Channels/101</span></label>
+      {{ field('camera', 'process_fps', 'Frames / second', 'Lower on a slow computer', type='number', step='0.5') }}
     </div>
     <div class="form-row" style="margin-top:14px">
-      {{ field('camera', 'area', 'Detection area', 'Easier: draw it on the Camera page. Empty = whole picture', cls='grow') }}
+      {{ field('camera', 'area', 'Detection area', 'Draw it on the Camera page · empty = whole picture', cls='grow') }}
     </div>
-    <div class="stack">{{ check('camera', 'enhance_low_light', 'Brighten dark frames automatically') }}</div>
+    <div class="stack">{{ check('camera', 'enhance_low_light', 'Brighten dark frames') }}</div>
     <hr>
-    <h2>Groups of people</h2>
+    <h2 class="row">{{ icon('employees') }}Groups of people</h2>
     <div class="form-row">
       <label class="field">Follow
         <select name="tracking.mode">
@@ -113,84 +109,83 @@
           <option value="person" {{ 'selected' if s.tracking.mode == 'person' }}>Whole people (better for groups)</option>
         </select>
         <span class="hint">{% if not cfg.path(cfg.tracking.person_model).exists() %}<b>Model missing:</b> run
-          <code>python -m attendance download-models --person</code>{% else %}Whole people needs a faster computer.{% endif %}</span></label>
+          <code>python -m attendance download-models --person</code>{% else %}Whole people needs a faster computer{% endif %}</span></label>
       {{ field('tracking', 'person_conf', 'Person confidence', 'Raise if bags or chairs get followed', type='number', step='0.05') }}
-      {{ field('tracking', 'full_frame_every', 'Whole frame every N frames', 'Higher = faster', type='number') }}
+      {{ field('tracking', 'full_frame_every', 'Full frame every N frames', 'Higher = faster', type='number') }}
     </div>
   </section>
 
   <section class="card tab" id="admin">
-    <h2>Access &amp; privacy</h2>
+    <h2 class="row">{{ icon('shield') }}Access &amp; privacy</h2>
     <div class="form-row">
-      <label class="field grow">Address of this page (used in chat links)<input name="web.public_url" value="{{ s.web.public_url }}"></label>
-      <label class="field">New password (user: {{ cfg.web.username }})<input name="web.password" type="password" autocomplete="new-password" placeholder="leave empty to keep"></label>
+      <label class="field grow">Address of this page<input name="web.public_url" value="{{ s.web.public_url }}"><span class="hint">Used in chat links</span></label>
+      <label class="field">New password<input name="web.password" type="password" autocomplete="new-password" placeholder="leave empty to keep"><span class="hint">User: {{ cfg.web.username }}</span></label>
     </div>
     <div class="form-row" style="margin-top:14px">
       {{ field('', 'retention_days', 'Delete camera photos after (days)', 'Reference photos are kept', type='number') }}
-      {{ field('', 'late_evidence_days', 'Keep photos of late days for (days)', 'Evidence, in case someone disputes being late', type='number') }}
-      <label class="field grow">Healthchecks.io ping URL (alert if this computer stops)<input name="healthcheck_url" value="{{ s['']['healthcheck_url'] }}"></label>
+      {{ field('', 'late_evidence_days', 'Keep late-day photos (days)', 'Evidence if someone disputes being late', type='number') }}
+      <label class="field grow">Healthchecks.io ping URL<input name="healthcheck_url" value="{{ s['']['healthcheck_url'] }}"><span class="hint">Alerts if this computer stops</span></label>
     </div>
     <hr>
-    <h2>Backup</h2>
-    <p class="hint" style="margin-top:0">Once a day, the database, the settings and the photos are copied to a folder you choose:
-      an external drive, a network share, or a folder that Google Drive / OneDrive / Dropbox syncs. To move to another computer,
-      install there and run <code>restore</code> from that folder (see the install guide).
+    <h2 class="row">{{ icon('database') }}Backup</h2>
+    <p class="hint" style="margin-top:0">Daily copy of the database, settings and photos to a folder: external drive, network share or a Drive / OneDrive / Dropbox folder.
+      Move to another computer with <code>restore</code> from that folder.
       {% if backup.at %}<br>Last backup {{ backup.at|replace('T', ' ')|truncate(19, True, '') }}:
         {% if backup.ok %}<span class="badge ok">OK</span>{% else %}<span class="badge bad">failed</span>{% endif %} {{ backup.message }}
-      {% elif s.backup.folder %}<br>No backup made yet; the first one runs at {{ s.backup.time }}.{% endif %}</p>
+      {% elif s.backup.folder %}<br>No backup yet · first one at {{ s.backup.time }}.{% endif %}</p>
     <div class="form-row">
       <label class="field grow">Backup folder<input name="backup.folder" value="{{ s.backup.folder }}" placeholder="/Volumes/Backup · D:\Backup · ~/Google Drive/Attendance">
-        <span class="hint">Empty = no backups. The folder must already exist.</span></label>
+        <span class="hint">Empty = no backups · the folder must exist</span></label>
       {{ field('backup', 'time', 'Every day at', 'After camera hours', type='time') }}
-      {{ field('backup', 'keep_days', 'Keep daily copies (days)', type='number') }}
+      {{ field('backup', 'keep_days', 'Keep copies (days)', type='number') }}
     </div>
     <div class="form-row" style="margin-top:12px; align-items:center">
-      {{ check('backup', 'include_photos', 'Include camera pictures', 'The database and reference photos are always included') }}
-      <button class="btn-sm" formaction="{{ url_for('backup_now') }}" formnovalidate>Back up now</button>
+      {{ check('backup', 'include_photos', 'Include camera pictures', 'Database and reference photos are always included') }}
+      <button class="btn-sm" formaction="{{ url_for('backup_now') }}" formnovalidate>{{ icon('database') }}Back up now</button>
     </div>
     <hr>
-    <h2>Updates</h2>
+    <h2 class="row">{{ icon('download') }}Updates</h2>
     <p class="hint" style="margin-top:0">Version {{ version }}.
-      {% if update.checked_at %}Last checked {{ update.checked_at|replace('T', ' ') }}{% if update.latest %}, newest is {{ update.latest }}{% endif %}.{% endif %}
+      {% if update.checked_at %}Checked {{ update.checked_at|replace('T', ' ') }}{% if update.latest %} · newest {{ update.latest }}{% endif %}.{% endif %}
       {% if update.state %}<b>{{ update.state }}.</b>{% endif %}
       {% if update.error %}<span style="color:var(--bad)">{{ update.error }}</span>{% endif %}</p>
     {% if packaged %}
     <div class="form-row" style="align-items:center">
-      {{ check('updates', 'enabled', 'Install new versions automatically', 'Checked every few hours, installed outside camera hours') }}
+      {{ check('updates', 'enabled', 'Install new versions automatically', 'Checked every few hours · installed outside camera hours') }}
       <button class="btn-sm" formaction="{{ url_for('update_now') }}" formnovalidate>{{ icon('refresh') }}Check now</button>
     </div>
     {% else %}
     <input type="hidden" name="updates.enabled" value="{{ 'on' if s.updates.enabled }}">
-    <p class="hint">Automatic updates are part of the installed program; this copy runs from the source code.</p>
+    <p class="hint">This copy runs from source; automatic updates are part of the installed program.</p>
     {% endif %}
   </section>
 
   <section class="card tab" id="hr">
-    <h2>HR system (holidays &amp; leave)</h2>
+    <h2 class="row">{{ icon('hr') }}HR system</h2>
+    <p class="hint" style="margin-top:0">Holidays, make-up days and leave. API format: docs/hr-api.md</p>
     <div class="form-row">
       <label class="field grow">API address<input name="leave_api.url" value="{{ s.leave_api.url }}" placeholder="https://hr.example.com/api/attendance-calendar"></label>
-      <label class="field">API token<input name="leave_api.token" type="password" autocomplete="off"
+      <label class="field">Token<input name="leave_api.token" type="password" autocomplete="off"
         placeholder="{{ 'saved · leave empty to keep' if s.leave_api.token else 'none' }}"></label>
       {{ field('leave_api', 'refresh_minutes', 'Refresh every (min)', type='number') }}
     </div>
     <div class="row between" style="margin-top:14px">
       <span class="hint">{% if leave.enabled %}Last update:
         {% if leave.at %}{{ leave.at.strftime('%d %b %H:%M') }} · {% if leave.ok %}<span class="badge ok">OK</span>{% else %}<span class="badge bad">Failed</span>{% endif %} {{ leave.message }}{% else %}not yet{% endif %}
-        {% else %}Not connected. The expected API format is described in docs/hr-api.md.{% endif %}</span>
+        {% else %}Not connected{% endif %}</span>
       {% if leave.enabled %}<button formaction="{{ url_for('leave_sync') }}">{{ icon('refresh') }}Load now</button>{% endif %}
     </div>
   </section>
 
   <section class="card tab" id="recognition">
-    <h2>Recognition</h2>
-    <p class="hint" style="margin-top:0">Model: {{ cfg.recognition.backend }} ({{ cfg.recognition.model_id() }}).
-      Tune these with <code>python -m attendance evaluate</code>; the model itself is chosen in config.yaml.</p>
+    <h2 class="row">{{ icon('accuracy') }}Recognition</h2>
+    <p class="hint" style="margin-top:0">Model {{ cfg.recognition.backend }} ({{ cfg.recognition.model_id() }}) · tune with <code>python -m attendance evaluate</code> · model chosen in config.yaml</p>
     <div class="form-row">
-      {{ field('recognition', 'accept_score', 'Match threshold', 'Higher = fewer wrong matches, more faces to review', type='number', step='0.01') }}
+      {{ field('recognition', 'accept_score', 'Match threshold', 'Higher = fewer wrong matches, more to review', type='number', step='0.01') }}
       {{ field('recognition', 'votes_required', 'Frames that must agree', type='number') }}
     </div>
     <details class="inline" style="margin-top:16px">
-      <summary>Advanced</summary>
+      <summary>{{ icon('sliders') }} Advanced</summary>
       <div class="stack" style="gap:16px">
         <div class="form-row">
           {{ field('recognition', 'min_margin', 'Margin over 2nd best', type='number', step='0.01') }}
@@ -201,17 +196,17 @@
           {{ field('recognition', 'max_yaw', 'Max head turn (°)', type='number', step='1') }}
           {{ field('recognition', 'max_pitch', 'Max head tilt (°)', type='number', step='1') }}
         </div>
-        <div>{{ check('recognition', 'auto_pose', 'Learn the camera angle', 'Turn and tilt are measured from how this camera usually sees faces. Now: ' ~ pose ~ '.') }}
-          <div style="margin:8px 0 0 48px"><button class="btn-sm" formaction="{{ url_for('reset_pose') }}" formnovalidate>{{ icon('refresh') }}Learn again</button> <span class="hint">after moving the camera</span></div>
+        <div>{{ check('recognition', 'auto_pose', 'Learn the camera angle', 'Measured from how this camera sees faces. Now: ' ~ pose ~ '.') }}
+          <div style="margin:8px 0 0 48px"><button class="btn-sm" formaction="{{ url_for('reset_pose') }}" formnovalidate title="After moving the camera">{{ icon('refresh') }}Learn again</button></div>
         </div>
         <div>
-          <h3 style="margin-bottom:4px">Review &amp; learning</h3>
-          <p class="hint">Faces named on the review page are always learned as reference photos.</p>
-          {{ check('recognition', 'learn_corrections', 'Also learn a face moved to the right person on the Today page', 'These are the faces the camera found hardest.') }}
+          <h3 class="row" style="margin-bottom:4px">{{ icon('review') }}Review &amp; learning</h3>
+          <p class="hint">Faces named on the Review page are always learned.</p>
+          {{ check('recognition', 'learn_corrections', 'Also learn faces moved to the right person on the Today page', 'The faces the camera found hardest') }}
           <div class="form-row" style="margin-top:14px">
-            {{ field('recognition', 'learn_per_group', 'Photos learned per confirmed group', 'Spread over the times the person was seen', type='number') }}
-            {{ field('recognition', 'group_days', 'Group faces seen within (days)', 'Look-alike unknown faces this recent are shown as one person', type='number') }}
-            {{ field('recognition', 'seen_again_score', 'Already-seen score', 'An unclear face this similar to someone checked in today is taken to be them and not sent for review. 0 = always review', type='number', step='0.01') }}
+            {{ field('recognition', 'learn_per_group', 'Photos learned per group', 'Spread over the times seen', type='number') }}
+            {{ field('recognition', 'group_days', 'Group faces within (days)', 'Look-alike unknown faces this recent are shown as one person', type='number') }}
+            {{ field('recognition', 'seen_again_score', 'Already-seen score', 'An unclear face this similar to someone already in today is taken to be them · 0 = always review', type='number', step='0.01') }}
           </div>
         </div>
       </div>
@@ -219,8 +214,8 @@
   </section>
 
   <div class="savebar">
-    <span class="hint" id="dirty">All changes saved</span>
-    <button class="primary btn-lg">Save settings</button>
+    <span class="hint row" id="dirty" style="gap:6px">{{ icon('check-circle') }}Saved</span>
+    <button class="primary btn-lg">{{ icon('check') }}Save</button>
   </div>
 </form>
 {% endblock %}
@@ -243,7 +238,7 @@
   // A field with a wrong value may sit on a hidden tab: open that tab so the browser can point at it.
   document.getElementById('settings').addEventListener('invalid', e => showTab(e.target.closest('.tab').id), true);
   document.getElementById('settings').addEventListener('input', () => {
-    document.getElementById('dirty').textContent = 'You have unsaved changes';
+    document.getElementById('dirty').textContent = 'Unsaved changes';
     document.querySelector('.savebar').classList.add('dirty');
   });
 </script>

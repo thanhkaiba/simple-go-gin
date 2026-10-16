@@ -52,7 +52,7 @@ Allow Python on private networks when the firewall asks, so the page can be open
 
 The Setup page walks through it: camera address (for Ezviz, `rtsp://admin:<VERIFICATION_CODE>@<CAMERA_IP>:554/Streaming/Channels/101`; the code is the 6 capital letters on the camera label; give the camera a fixed IP in the router), working hours, the Google Chat webhook (space name → *Apps & integrations* → *Webhooks* → *Add webhook*), a password, the address other computers use, and the employees.
 
-**@mentions in Google Chat** only work with each person's Google Chat user ID: in the Google Admin console under *Directory → Users*, open the person; the number at the end of the page address is the ID. Enter it on the person's page (*Send test mention* checks it) or in a `chat_user` column of the CSV import. People without an ID appear as plain "@Name" without a notification.
+**@mentions in Google Chat** only work with each person's Google Chat user ID: in the Google Admin console under *Directory → Users*, open the person; the number at the end of the page address is the ID. Enter it on the person's page (*Test mention* checks it) or in a `chat_user` column of the CSV import. People without an ID appear as plain "@Name" without a notification.
 
 ## Keep it running
 

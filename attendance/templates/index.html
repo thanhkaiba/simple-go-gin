@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% set title = 'Today' if rep.day == today else rep.day.strftime('%d %b') %}
+{% set SRC_ICON = {'camera': 'camera', 'admin': 'user-check', 'manual': 'edit', 'corrected': 'swap'} %}
 {% macro avatar(path, name) %}{% if path %}<a class="avatar-link" href="{{ url_for('media', path=path) }}" target="_blank"><img class="avatar" src="{{ url_for('media', path=path) }}" alt=""></a>{% else %}<span class="avatar empty">{{ name[:1] }}</span>{% endif %}{% endmacro %}
 {% macro row(status, emp_id, name, a=None, note='') %}
   <tr data-status="{{ status }}" data-name="{{ name|lower }}" data-emp="{{ emp_id }}" data-display="{{ name }}"
@@ -16,8 +17,8 @@
       {% else %}<span class="badge bad">Not seen</span>{% endif %}
     </td>
     <td class="num tnum">{{ a.time if a else '–' }}</td>
-    <td class="hide-sm small muted">{% if a %}{{ SOURCES.get(a.source, a.source) }}{% if a.score %} · {{ '%.0f'|format(a.score * 100) }}%{% endif %}{% endif %}</td>
-    <td class="num">{% if status != 'on_leave' %}<button class="btn-sm ghost" type="button">{{ icon('edit') }}Edit</button>{% endif %}</td>
+    <td class="hide-sm">{% if a %}<span class="src" title="{{ SOURCES.get(a.source, a.source) }}">{{ icon(SRC_ICON.get(a.source, 'info')) }}{% if a.score %}<span class="tnum">{{ '%.0f'|format(a.score * 100) }}%</span>{% endif %}</span>{% endif %}</td>
+    <td class="num">{% if status != 'on_leave' %}<button class="btn-sm ghost icon" type="button" title="Correct" aria-label="Correct">{{ icon('edit') }}</button>{% endif %}</td>
   </tr>
 {% endmacro %}
 {% block body %}
@@ -25,35 +26,37 @@
   <div>
     <div class="eyebrow">{{ WEEKDAYS[rep.day.weekday()] }}{% if rep.day == today %} · today{% endif %}</div>
     <h1>{{ rep.day.strftime('%d %B %Y') }}</h1>
-    <p class="subtitle">On time if seen before <strong>{{ rep.window.late_after.strftime('%H:%M') }}</strong>
-      · camera on {{ rep.window.start.strftime('%H:%M') }}–{{ rep.window.end.strftime('%H:%M') }}</p>
+    <div class="chips">
+      <span class="chip" title="Seen at or after this time = late">{{ icon('clock') }}late from <strong>{{ rep.window.late_after.strftime('%H:%M') }}</strong></span>
+      <span class="chip" title="Camera hours">{{ icon('camera') }}{{ rep.window.start.strftime('%H:%M') }}–{{ rep.window.end.strftime('%H:%M') }}</span>
+    </div>
   </div>
   <form class="actions" method="get">
-    <a class="btn btn-sm" href="{{ url_for('index', day=prev_day.isoformat()) }}" title="Previous day" aria-label="Previous day">{{ icon('chevron-left') }}</a>
+    <a class="btn btn-sm icon" href="{{ url_for('index', day=prev_day.isoformat()) }}" title="Previous day" aria-label="Previous day">{{ icon('chevron-left') }}</a>
     <input type="date" name="day" value="{{ rep.day.isoformat() }}" data-autosubmit aria-label="Pick a day">
-    <a class="btn btn-sm" href="{{ url_for('index', day=next_day.isoformat()) }}" title="Next day" aria-label="Next day">{{ icon('chevron-right') }}</a>
-    {% if rep.day != today %}<a class="btn btn-sm btn-soft" href="{{ url_for('index') }}">Today</a>{% endif %}
+    <a class="btn btn-sm icon" href="{{ url_for('index', day=next_day.isoformat()) }}" title="Next day" aria-label="Next day">{{ icon('chevron-right') }}</a>
+    {% if rep.day != today %}<a class="btn btn-sm btn-soft" href="{{ url_for('index') }}">{{ icon('today') }}Today</a>{% endif %}
   </form>
 </div>
 
 {% if not rep.workday %}
-  <div class="alert info"><span class="ico">{{ icon('calendar-off') }}</span><span>{{ rep.day_note or 'Not a work day' }}. Nobody is expected and no notifications are sent.</span></div>
+  <div class="alert info"><span class="ico">{{ icon('calendar-off') }}</span><span>{{ rep.day_note or 'Not a work day' }} · nobody expected, nothing posted.</span></div>
 {% elif rep.day_note %}
   <div class="alert info"><span class="ico">{{ icon('info') }}</span><span>{{ rep.day_note }}</span></div>
 {% endif %}
 {% if rep.workday and rep.all_in and rep.last_arrival %}
-  <div class="alert ok"><span class="ico">{{ icon('check') }}</span><span><strong>Everyone is in</strong> · last arrival {{ rep.last_arrival.time }}.
-    {% if deadline.skipped %}No {{ rep.window.late_after.strftime('%H:%M') }} message was needed, so none was sent.{% elif rep.day == today and not deadline.sent %}If it stays this way, no {{ rep.window.late_after.strftime('%H:%M') }} message will be sent.{% endif %}</span></div>
+  <div class="alert ok"><span class="ico">{{ icon('check') }}</span><span><strong>Everyone is in</strong> · last arrival {{ rep.last_arrival.time }}
+    {% if deadline.skipped %}· {{ rep.window.late_after.strftime('%H:%M') }} list skipped{% elif rep.day == today and not deadline.sent %}· no {{ rep.window.late_after.strftime('%H:%M') }} list if it stays so{% endif %}</span></div>
 {% endif %}
-{% if rep.no_camera_data %}<div class="alert warn"><span class="ico">{{ icon('alert') }}</span><span>The camera did not work at all on this day, so "not seen" does not mean absent.</span></div>{% endif %}
-{% if rep.outages and not rep.no_camera_data %}<div class="alert warn"><span class="ico">{{ icon('alert') }}</span><span>Camera was down
-  {% for a, b in rep.outages %}{{ a.strftime('%H:%M') }}–{{ b.strftime('%H:%M') }}{{ ', ' if not loop.last }}{% endfor %};
-  people who arrived then may be missing.</span></div>{% endif %}
+{% if rep.no_camera_data %}<div class="alert warn"><span class="ico">{{ icon('camera-off') }}</span><span>Camera was off all day · "not seen" does not mean absent.</span></div>{% endif %}
+{% if rep.outages and not rep.no_camera_data %}<div class="alert warn"><span class="ico">{{ icon('alert') }}</span><span>Camera down
+  {% for a, b in rep.outages %}{{ a.strftime('%H:%M') }}–{{ b.strftime('%H:%M') }}{{ ', ' if not loop.last }}{% endfor %}
+  · arrivals then may be missing.</span></div>{% endif %}
 {% if leave.warning %}<div class="alert warn"><span class="ico">{{ icon('alert') }}</span><span>{{ leave.warning|replace("⚠️ ", "") }}{% if leave.message and not leave.ok %} ({{ leave.message }}){% endif %}</span></div>{% endif %}
-{% if backup_warning %}<div class="alert warn"><span class="ico">{{ icon('alert') }}</span><span>{{ backup_warning }} <a href="{{ url_for('settings_page') }}#admin">Settings</a></span></div>{% endif %}
-{% if rep.no_photos %}<div class="alert warn"><span class="ico">{{ icon('alert') }}</span><span>Cannot be recognised (no photos):
+{% if backup_warning %}<div class="alert warn"><span class="ico">{{ icon('database') }}</span><span>{{ backup_warning }} <a href="{{ url_for('settings_page') }}#admin">Settings</a></span></div>{% endif %}
+{% if rep.no_photos %}<div class="alert warn"><span class="ico">{{ icon('image') }}</span><span>No photos, cannot be recognised:
   {% for id, name in rep.no_photos %}<a href="{{ url_for('employee', employee_id=id) }}">{{ name }}</a>{{ ', ' if not loop.last }}{% endfor %}</span></div>{% endif %}
-{% if rep.day == today and rep.workday and not started %}<div class="alert info"><span class="ico">{{ icon('clock') }}</span><span>The camera starts at {{ rep.window.start.strftime('%H:%M') }}.</span></div>{% endif %}
+{% if rep.day == today and rep.workday and not started %}<div class="alert info"><span class="ico">{{ icon('clock') }}</span><span>Camera starts at {{ rep.window.start.strftime('%H:%M') }}.</span></div>{% endif %}
 
 <div class="tiles">
   <button class="tile active" type="button" data-filter="all"><div class="n">{{ rep.total + rep.on_leave|length + rep.exempt|length }}</div><div class="l">Everyone</div></button>
@@ -61,19 +64,19 @@
   <button class="tile bad" type="button" data-filter="not_seen"><div class="n">{{ rep.not_seen|length }}</div><div class="l">Not seen</div></button>
   <button class="tile ok" type="button" data-filter="on_time"><div class="n">{{ rep.on_time|length }}</div><div class="l">On time</div></button>
   <button class="tile info" type="button" data-filter="on_leave"><div class="n">{{ rep.on_leave|length }}</div><div class="l">On leave</div></button>
-  {% if rep.pending_unknowns %}<a class="tile bad" href="{{ url_for('unknowns') }}"><div class="n">{{ rep.pending_unknowns }}</div><div class="l">Faces to review →</div></a>{% endif %}
+  {% if rep.pending_unknowns %}<a class="tile bad" href="{{ url_for('unknowns') }}" title="Faces to review"><div class="n">{{ rep.pending_unknowns }}</div><div class="l">Review {{ icon('chevron-right') }}</div></a>{% endif %}
 </div>
 
 <div class="row between" style="margin-bottom:12px">
-  <div class="search" style="flex: 0 1 340px"><input type="search" id="search" placeholder="Search by name or id…" aria-label="Search"></div>
+  <div class="search" style="flex: 0 1 340px"><input type="search" id="search" placeholder="Search…" aria-label="Search by name or id"></div>
   {% if leave.enabled %}
-  <form method="post" action="{{ url_for('leave_sync') }}" class="row small muted">
+  <form method="post" action="{{ url_for('leave_sync') }}" class="row" style="gap:6px">
     <input type="hidden" name="back" value="{{ request.full_path }}">
-    <span>Leave &amp; holidays from HR{% if leave.last_success %}, updated {{ leave.last_success.strftime('%H:%M') }}{% endif %}</span>
-    <button class="btn-sm">{{ icon('refresh') }}Refresh</button>
+    <span class="chip" title="Leave &amp; holidays from the HR system{% if leave.last_success %}, updated {{ leave.last_success.strftime('%H:%M') }}{% endif %}">{{ icon('hr') }}HR{% if leave.last_success %} · {{ leave.last_success.strftime('%H:%M') }}{% endif %}</span>
+    <button class="btn-sm icon" title="Refresh leave &amp; holidays" aria-label="Refresh leave and holidays">{{ icon('refresh') }}</button>
   </form>
   {% else %}
-  <span class="small muted">Leave and holidays are not connected (<a href="{{ url_for('settings_page') }}#hr">Settings → HR system</a>).</span>
+  <a class="chip" href="{{ url_for('settings_page') }}#hr" title="Leave and holidays are not connected · Settings → HR system">{{ icon('hr') }}HR not connected</a>
   {% endif %}
 </div>
 
@@ -97,58 +100,59 @@
 {% if late_msg.enabled and rep.workday %}
 <div class="card" style="margin-top:16px">
   <div class="card-head">
-    <h2 class="row" style="gap:8px">{{ icon('chat') }} Late message for Google Chat</h2>
+    <h2 class="row">{{ icon('chat') }}Late message</h2>
     <form method="post" action="{{ url_for('send_late_message', day=rep.day.isoformat()) }}"
           {% if late_msg.sent %}data-confirm="The message was already sent. Send it again?"{% endif %}>
-      <button class="{{ 'primary' if not late_msg.sent }}" {{ 'disabled' if not late_msg.preview }}>{{ icon('send') }}{{ 'Send again' if late_msg.sent else 'Send now' }}</button>
+      <button class="{{ 'primary' if not late_msg.sent }}" {{ 'disabled' if not late_msg.preview }} title="Post to Google Chat">{{ icon('send') }}{{ 'Resend' if late_msg.sent else 'Send' }}</button>
     </form>
   </div>
   {% if late_msg.preview %}
     <p class="preview-box">{{ late_msg.preview }}</p>
   {% else %}
-    <p class="muted">Nobody was late{{ ' so far' if rep.day == today }} 🎉</p>
+    <p class="muted">Nobody late{{ ' so far' if rep.day == today }} 🎉</p>
   {% endif %}
   <p class="hint" style="margin:0">
-    {% if late_msg.sent %}Sent at {{ late_msg.sent.strftime('%H:%M') }}.
-    {% elif late_msg.skipped %}Nobody was late at {{ late_msg.skipped.strftime('%H:%M') }}, so nothing was sent.
-    {% elif late_msg.auto %}Sent automatically at {{ late_msg.send_at }}. Fix wrong arrivals above before then.
-    {% else %}Sent only when you click the button.{% endif %}
-    {% if rep.day != today %}<br>A message about another day starts with its date.{% endif %}
-    {% if late_msg.missing_chat %}<br>⚠️ No Google Chat ID for {{ late_msg.missing_chat|join(', ') }}: shown as plain text, without a notification.{% endif %}
+    {% if late_msg.sent %}{{ icon('check') }} Sent at {{ late_msg.sent.strftime('%H:%M') }}.
+    {% elif late_msg.skipped %}{{ icon('info') }} Nobody was late at {{ late_msg.skipped.strftime('%H:%M') }}, so nothing was sent.
+    {% elif late_msg.auto %}{{ icon('clock') }} Auto-send at {{ late_msg.send_at }} · fix wrong arrivals above before then.
+    {% else %}{{ icon('send') }} Sent only by the button.{% endif %}
+    {% if rep.day != today %}· starts with its date{% endif %}
+    {% if late_msg.missing_chat %}<br><span class="warn-ico">{{ icon('alert') }}</span> No Google Chat ID: {{ late_msg.missing_chat|join(', ') }} (plain text, no notification).{% endif %}
   </p>
 </div>
 {% endif %}
 
 <dialog id="edit">
-  <div class="dialog-head"><strong id="edit-title">Edit</strong><button type="button" class="close" data-close aria-label="Close">{{ icon('close') }}</button></div>
+  <div class="dialog-head"><strong id="edit-title">Edit</strong>
+    <span class="tools">
+      <a id="edit-evidence" class="btn btn-sm ghost" target="_blank" title="Evidence page: camera pictures, sightings and changes for this day, printable or as a ZIP">{{ icon('shield') }}Evidence</a>
+      <button type="button" class="close" data-close aria-label="Close">{{ icon('close') }}</button>
+    </span>
+  </div>
   <div class="dialog-body">
     <div id="sightings-box">
-      <strong>Seen by the camera</strong>
+      <strong class="row">{{ icon('camera') }}Sightings</strong>
       <div id="sightings" class="sightings"></div>
-      <span class="hint">The arrival is the earliest sighting that is not removed. If one of them was someone else,
-        fix that sighting: the arrival is recomputed from the others, and the face is learned for the right person.</span>
+      <span class="hint">Arrival = earliest kept sighting. Moving a sighting also teaches the face to the right person.</span>
     </div>
-    <p class="hint" style="margin:0"><a id="edit-evidence" target="_blank">Evidence page</a>: the camera pictures with the
-      time stamp, every sighting and every change for this person's day, printable or as a ZIP.</p>
     <form method="post" id="form-set">
       <strong id="set-label">Arrival time</strong>
       <div class="form-row"><input name="time" id="edit-time" class="time24" inputmode="numeric" maxlength="5" placeholder="HH:MM"
-        pattern="([01]\d|2[0-3]):[0-5]\d" autocomplete="off" required><button class="primary">Save</button></div>
-      <span class="hint">Use this if the camera missed the person or got the time wrong. 24-hour clock, e.g. 0845.</span>
+        pattern="([01]\d|2[0-3]):[0-5]\d" autocomplete="off" required><button class="primary">{{ icon('check') }}Save</button></div>
+      <span class="hint">24-hour clock, e.g. 0845.</span>
     </form>
     <form method="post" id="form-move">
-      <strong>Recorded the wrong person?</strong>
+      <strong>Wrong person?</strong>
       <div class="form-row" style="flex-wrap:nowrap">
         <select name="to" id="edit-to" required style="flex:1; min-width:0">
-          <option value="">Who was it really?</option>
+          <option value="">Who was it?</option>
           {% for id, name in employees.items() %}<option value="{{ id }}">{{ name }}</option>{% endfor %}
         </select>
-        <button>Move to them</button>
+        <button title="Move time and photo to them; the face is learned for them">{{ icon('swap') }}Move</button>
       </div>
-      <span class="hint">Moves this arrival (time and photo) to the person you pick, and learns the face for them.</span>
     </form>
     <form method="post" id="form-delete" data-confirm="Delete this arrival? If the person really comes later, the camera records them again.">
-      <div class="form-row"><button class="danger">{{ icon('trash') }}Delete this arrival</button></div>
+      <div class="form-row"><button class="danger">{{ icon('trash') }}Delete arrival</button></div>
     </form>
   </div>
 </dialog>
@@ -159,10 +163,10 @@
     <form method="post" class="move">
       <select name="to" required title="Wrong person? Pick who it really was"><option value="">Really was…</option>
         {% for id, name in employees.items() %}<option value="{{ id }}">{{ name }}</option>{% endfor %}</select>
-      <button class="btn-sm">Move</button>
+      <button class="btn-sm icon" title="Move to this person" aria-label="Move">{{ icon('swap') }}</button>
     </form>
-    <form method="post" class="reject"><button class="btn-sm" title="Nobody on the list, e.g. a visitor">Not them</button></form>
-    <form method="post" class="restore"><button class="btn-sm">Restore</button></form>
+    <form method="post" class="reject"><button class="btn-sm icon" title="Not them: nobody on the list, e.g. a visitor" aria-label="Not them">{{ icon('user-x') }}</button></form>
+    <form method="post" class="restore"><button class="btn-sm icon" title="Restore" aria-label="Restore">{{ icon('undo') }}</button></form>
   </div>
 </template>
 {% endblock %}

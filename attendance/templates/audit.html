@@ -2,7 +2,7 @@
 {% set title = 'Change log' %}
 {% block body %}
 <div class="page-head">
-  <div><h1>Change log</h1><p class="subtitle">Every change made on this page: corrections, confirmations, photos, people and settings.</p></div>
+  <div><h1>Change log</h1><div class="chips"><span class="chip" title="Corrections, confirmations, photos, people and settings changed on these pages">{{ icon('log') }}<strong>{{ rows|length }}</strong> entries</span></div></div>
   <div class="search" style="flex: 0 1 300px"><input type="search" id="search" placeholder="Search…" aria-label="Search the log"></div>
 </div>
 <div class="table-wrap">
