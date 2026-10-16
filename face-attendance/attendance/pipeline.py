@@ -17,7 +17,7 @@ from .live import FrameHealth, LiveStatus
 from .posecal import PoseCalibration
 from .notifier import GoogleChat
 from .service import AttendanceService
-from .store import Store
+from .store import Store, body_photo
 from .tracker import Decision, vote_for
 
 log = logging.getLogger(__name__)
@@ -69,6 +69,8 @@ def save_crop(app: App, decision: Decision, ts: dt.datetime) -> str | None:
     path = app.data_dir / rel
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(encode_jpeg(decision.crop))
+    if decision.body is not None:
+        (app.data_dir / body_photo(rel.as_posix())).write_bytes(encode_jpeg(decision.body))
     return rel.as_posix()
 
 

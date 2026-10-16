@@ -199,6 +199,11 @@ def normalize_chat_user(value: str | None) -> str:
     return value
 
 
+def body_photo(image: str) -> str:
+    """Where the photo of the whole person is kept, next to the camera snapshot of their face."""
+    return image[:-len(".jpg")] + "_body.jpg"
+
+
 def _vec(blob) -> np.ndarray | None:
     return None if blob is None else np.frombuffer(blob, dtype=np.float32)
 

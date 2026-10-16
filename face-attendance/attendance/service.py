@@ -23,7 +23,7 @@ from . import leave_api
 from .config import Config, parse_clock
 from .gallery import Gallery
 from .notifier import GoogleChat
-from .store import LEAVE_KINDS, Store
+from .store import LEAVE_KINDS, Store, body_photo
 
 if TYPE_CHECKING:
     from .faces import FaceLibrary
@@ -612,6 +612,7 @@ class AttendanceService:
             path = data_dir / image
             if image.startswith("crops/") and path.exists():
                 path.unlink()
+                (data_dir / body_photo(image)).unlink(missing_ok=True)
                 removed += 1
         crops = data_dir / "crops"
         if crops.exists():

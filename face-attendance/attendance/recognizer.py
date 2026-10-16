@@ -103,6 +103,14 @@ def crop_face(frame: np.ndarray, bbox, margin: float = 0.4) -> np.ndarray:
     return frame[y1:y2, x1:x2].copy()
 
 
+def crop_body(frame: np.ndarray, bbox) -> np.ndarray:
+    """The person below a face, so whoever reviews the photo can tell people apart by build and
+    clothes: a standing person is about eight face heights tall and four face widths wide."""
+    x1, y1, x2, y2 = bbox
+    fw, fh, cx = x2 - x1, y2 - y1, (x1 + x2) / 2
+    return crop_face(frame, (cx - 2 * fw, y1 - 0.5 * fh, cx + 2 * fw, y1 + 8 * fh), margin=0)
+
+
 def cpu_threads(setting: int = 0) -> int:
     """Threads for model inference: the setting, or all CPUs but one, which is left for the video
     decoder and the admin page (at least 1)."""

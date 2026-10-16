@@ -90,6 +90,7 @@ def test_old_snapshots_are_deleted_but_reference_photos_kept(core):
     for day in (old_day, new_day):
         (data / "crops" / day.isoformat()).mkdir(parents=True)
         (data / "crops" / day.isoformat() / "a.jpg").write_bytes(b"x")
+        (data / "crops" / day.isoformat() / "a_body.jpg").write_bytes(b"x")
         app.store.record_checkin(day, "A", at(9, 0, day=day), "camera", 0.8, f"crops/{day}/a.jpg")
         app.store.add_unknown(day, at(9, 0, day=day), f"crops/{day}/a.jpg", "m", None, None, None)
     (data / "faces" / "A").mkdir(parents=True)

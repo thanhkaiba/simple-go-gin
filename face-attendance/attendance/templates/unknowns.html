@@ -16,10 +16,15 @@
   {% for g in groups %}
   {% set first, last = g.members[0], g.latest %}
   <div class="card" style="margin:0; padding:0; overflow:hidden">
-    {% if g.photos %}
+    {% if g.body %}
+      <a href="{{ url_for('media', path=g.body) }}" target="_blank"><img src="{{ url_for('media', path=g.body) }}" alt="" style="width:100%; height:340px; object-fit:contain; background:#0f172a; display:block"></a>
+    {% elif g.photos %}
       <a href="{{ url_for('media', path=g.photos[0]) }}" target="_blank"><img src="{{ url_for('media', path=g.photos[0]) }}" alt="" style="width:100%; aspect-ratio: 1; object-fit: cover; display:block"></a>
-      {% if g.photos|length > 1 %}<div style="display:flex; gap:4px; padding:4px; background:#f1f5f9">
-        {% for p in g.photos[1:] %}<a href="{{ url_for('media', path=p) }}" target="_blank" style="flex:1"><img src="{{ url_for('media', path=p) }}" alt="" style="width:100%; aspect-ratio:1; object-fit:cover; border-radius:4px; display:block"></a>{% endfor %}
+    {% endif %}
+    {% if g.photos %}
+      {% set thumbs = g.photos if g.body else g.photos[1:] %}
+      {% if thumbs %}<div style="display:flex; gap:4px; padding:4px; background:#f1f5f9">
+        {% for p in thumbs %}<a href="{{ url_for('media', path=p) }}" target="_blank" style="flex:1"><img src="{{ url_for('media', path=p) }}" alt="" style="width:100%; aspect-ratio:1; object-fit:cover; border-radius:4px; display:block"></a>{% endfor %}
       </div>{% endif %}
     {% endif %}
     <div style="padding:12px; display:grid; gap:8px">

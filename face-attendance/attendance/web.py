@@ -19,7 +19,7 @@ from flask import (Flask, Response, abort, flash, jsonify, redirect, render_temp
 from . import __version__, leave_api, settings, updater
 from . import setup as first_setup
 from .service import SOURCES, minutes_late
-from .store import LEAVE_KINDS
+from .store import LEAVE_KINDS, body_photo
 
 if TYPE_CHECKING:
     from .pipeline import App
@@ -212,6 +212,8 @@ def create_app(core: "App") -> Flask:
             best = max(guesses, key=lambda u: u.guess_score or 0) if guesses else None
             groups.append({"id": members[-1].id, "members": members, "latest": members[-1],
                            "photos": [u.image for u in reversed(members) if u.image][:6],
+                           "body": next((body_photo(u.image) for u in reversed(members) if u.image
+                                         and (core.data_dir / body_photo(u.image)).exists()), None),
                            "guess": best.guess_id if best else None, "guess_score": best.guess_score if best else None})
         ignored = [{"id": g[-1].id, "count": len(g), "latest": g[-1],
                     "photo": next((u.image for u in reversed(g) if u.image), None)}
