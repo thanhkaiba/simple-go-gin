@@ -65,7 +65,24 @@ Other design decisions:
 
 ## 1. Install
 
-### Easy install (recommended)
+### Installer (recommended)
+
+Download the installer for your computer from the newest [release](https://github.com/thanhkaiba/simple-go-gin/releases/latest). It contains Python and every library; only the face models (about 300 MB) are downloaded, by the program itself on its first start, with the progress shown on the page. No admin rights needed.
+
+| | Windows | macOS | Linux |
+|---|---|---|---|
+| Download | `FaceAttendance-Setup-<version>.exe` | `FaceAttendance-<version>-macos-arm64.dmg` (Apple chip) or `-macos-x64.dmg` (Intel) | `FaceAttendance-<version>-linux-x64-installer.tar.gz` |
+| Install | run it (SmartScreen: *More info → Run anyway*) | open the .dmg, drag *FaceAttendance* to *Applications*, then right-click it → *Open* the first time | unpack, run `./install.sh` |
+| Settings, data, models | `%LOCALAPPDATA%\FaceAttendance` | `~/Library/Application Support/FaceAttendance` | `~/.local/share/face-attendance` |
+| Remove | *Settings → Apps → Face Attendance* | run `/Applications/FaceAttendance.app/Contents/MacOS/FaceAttendance uninstall` in Terminal, then delete the app | `./uninstall.sh` |
+
+The program starts at login, restarts itself if it stops, and opens the **Setup** page the first time. Opening it again just opens the page.
+
+**Updates are automatic.** Every 6 hours the program looks for a newer release, downloads it into the data folder and, outside camera hours, restarts into it. *Settings → Access → Updates* shows the version and has *Check now*; untick the box to stop automatic updates. Data and settings are kept. Coming from the install script below: install over it; it uses the same data folder and stops the old copy.
+
+To publish a new version: change `__version__` in `attendance/__init__.py` if you like, then push a tag (`git tag v1.2.0 && git push origin v1.2.0`). GitHub Actions (`.github/workflows/build.yml`) builds and tests the packages on Windows, macOS and Linux and publishes the release; installed copies update within hours. Build one locally with `pip install . pyinstaller certifi && pyinstaller packaging/face-attendance.spec`.
+
+### Install script (from the source folder)
 
 No commands needed, and no admin rights. The installer gets its own Python, the libraries and the models (about 300 MB the first time), starts the program now and at every login, puts a shortcut on the Desktop and opens the **Setup** page.
 

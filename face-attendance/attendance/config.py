@@ -177,6 +177,12 @@ class WebConfig:
 
 
 @dataclass
+class UpdatesConfig:
+    enabled: bool = True     # packaged program only: install new releases by itself, outside camera hours
+    check_hours: float = 6
+
+
+@dataclass
 class Config:
     timezone: str = "Asia/Ho_Chi_Minh"
     data_dir: str = "data"
@@ -191,6 +197,7 @@ class Config:
     leave_api: LeaveApiConfig = field(default_factory=LeaveApiConfig)
     late_message: LateMessageConfig = field(default_factory=LateMessageConfig)
     web: WebConfig = field(default_factory=WebConfig)
+    updates: UpdatesConfig = field(default_factory=UpdatesConfig)
     base_dir: Path = field(default=Path("."), repr=False)
 
     @property

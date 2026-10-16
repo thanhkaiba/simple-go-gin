@@ -5,6 +5,7 @@ import shutil
 import urllib.request
 import zipfile
 from pathlib import Path
+from typing import Callable
 
 INSIGHTFACE_PACK = "https://github.com/deepinsight/insightface/releases/download/v0.7/buffalo_l.zip"
 OPENCV_ZOO = "https://media.githubusercontent.com/media/opencv/opencv_zoo/main/models/"
@@ -18,11 +19,30 @@ LICENCES = {
     "person": "YOLOX: Apache 2.0 licence. Free for commercial use.",
 }
 
+# Called with (bytes done, total bytes or 0 if unknown) while a file downloads.
+Progress = Callable[[int, int], None]
 
-def _fetch_to(url: str, dest: Path) -> None:
+
+def _print_progress(done: int, total: int) -> None:
+    if total:
+        print(f"\r  {done / total:4.0%}  {done >> 20} of {total >> 20} MB", end="", flush=True)
+
+
+def _fetch_to(url: str, dest: Path, progress: Progress | None = None) -> None:
     print(f"Downloading {url}")
-    with urllib.request.urlopen(url, timeout=120) as resp, open(dest, "wb") as out:
-        shutil.copyfileobj(resp, out)
+    progress = progress or _print_progress
+    partial = dest.with_name(dest.name + ".part")  # a broken download never looks like a model
+    with urllib.request.urlopen(url, timeout=120) as resp, open(partial, "wb") as out:
+        total, done = int(resp.headers.get("Content-Length") or 0), 0
+        while chunk := resp.read(1 << 20):
+            out.write(chunk)
+            done += len(chunk)
+            progress(done, total)
+    if total and done < total:
+        partial.unlink()
+        raise RuntimeError(f"Download of {url} stopped at {done >> 20} of {total >> 20} MB")
+    partial.replace(dest)
+    print()
 
 
 def _fetch(url: str) -> bytes:
@@ -31,16 +51,45 @@ def _fetch(url: str) -> bytes:
         return resp.read()
 
 
-def download(backend: str, models_dir: Path) -> None:
+def missing(cfg) -> list[Path]:
+    """Model files the current settings need that are not on disk."""
+    files = [cfg.path(f) for f in cfg.recognition.model_files() if f]
+    if cfg.tracking.mode == "person":
+        files.append(cfg.path(cfg.tracking.person_model))
+    return [f for f in files if not f.exists()]
+
+
+def ensure(cfg, progress: Progress | None = None) -> bool:
+    """Download what `missing` lists, if it is a default model this program knows how to get.
+    Returns True when something was downloaded."""
+    need = missing(cfg)
+    if not need:
+        return False
+    models_dir = cfg.path("models")
+    rec = {cfg.path(f) for f in cfg.recognition.model_files() if f}
+    if rec & set(need):
+        download(cfg.recognition.backend, models_dir, progress)
+    person = cfg.path(cfg.tracking.person_model)
+    if person in need and person.stem in PERSON_MODELS:
+        download_person(person.stem, models_dir, progress)
+    still = missing(cfg)
+    if still:
+        raise RuntimeError("Model file not found: " + ", ".join(str(f) for f in still))
+    return True
+
+
+def download(backend: str, models_dir: Path, progress: Progress | None = None) -> None:
     models_dir.mkdir(parents=True, exist_ok=True)
     if backend == "insightface":
         archive = models_dir / "buffalo_l.zip"  # ~290 MB; only two of its models are needed
-        _fetch_to(INSIGHTFACE_PACK, archive)
+        _fetch_to(INSIGHTFACE_PACK, archive, progress)
         with zipfile.ZipFile(archive) as pack:
             for name in ("det_10g.onnx", "w600k_r50.onnx"):
                 member = next(m for m in pack.namelist() if m.endswith(name))
-                with pack.open(member) as src, open(models_dir / name, "wb") as dst:
+                partial = models_dir / (name + ".part")
+                with pack.open(member) as src, open(partial, "wb") as dst:
                     shutil.copyfileobj(src, dst)
+                partial.replace(models_dir / name)
         archive.unlink()
     elif backend == "opencv":
         for path in ("face_detection_yunet/face_detection_yunet_2023mar.onnx",
@@ -55,12 +104,12 @@ def download(backend: str, models_dir: Path) -> None:
     print(f"Licence: {LICENCES[backend]}")
 
 
-def download_person(name: str, models_dir: Path) -> None:
+def download_person(name: str, models_dir: Path, progress: Progress | None = None) -> None:
     """YOLOX person detector for tracking.mode: person."""
     if name not in PERSON_MODELS:
         raise ValueError(f"unknown person model {name}")
     models_dir.mkdir(parents=True, exist_ok=True)
     dest = models_dir / f"{name}.onnx"
-    _fetch_to(YOLOX.format(name), dest)
+    _fetch_to(YOLOX.format(name), dest, progress)
     print(f"Saved to {dest}")
     print(f"Licence: {LICENCES['person']}")

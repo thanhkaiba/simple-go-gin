@@ -218,6 +218,9 @@ class Store:
             self._db.execute("PRAGMA journal_mode=WAL")
             self._migrate()
 
+    def close(self) -> None:
+        self._db.close()
+
     def _migrate(self) -> None:
         """Add columns introduced after a database was created."""
         added = {"embeddings": [("image", "TEXT")], "unknowns": [("group_id", "INTEGER"), ("ignored_day", "TEXT")],

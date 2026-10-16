@@ -194,6 +194,9 @@
       <span>{{ message }}</span><button class="close" type="button" onclick="this.parentElement.remove()" aria-label="Close">×</button>
     </div>
   {% endfor %}
+  {% if models_status %}
+  <div class="alert warn" id="models-status"><span class="spin"></span><span>{{ models_status }}. Faces are recognised once it has finished; everything else works already.</span></div>
+  {% endif %}
   {% if reports %}
   <nav class="seg">
     <a href="{{ url_for('report') }}" class="{{ 'on' if nav == 'report' }}">Late &amp; absence</a>
@@ -204,6 +207,17 @@
   {% block body %}{% endblock %}
 </main>
 <script>
+  // First start: follow the model download until it is done.
+  const modelsBox = document.getElementById('models-status');
+  if (modelsBox) {
+    const poll = setInterval(async () => {
+      try {
+        const s = (await (await fetch('{{ url_for("models_json") }}')).json()).status;
+        if (s) { modelsBox.lastElementChild.textContent = s + '. Faces are recognised once it has finished; everything else works already.'; return; }
+        clearInterval(poll); modelsBox.className = 'alert ok'; modelsBox.textContent = 'Face recognition models are ready.';
+      } catch (e) {}
+    }, 2000);
+  }
   // Success messages disappear by themselves; warnings and errors stay until closed.
   setTimeout(() => document.querySelectorAll('[data-flash="ok"]').forEach(el => el.remove()), 6000);
 

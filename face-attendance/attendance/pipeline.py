@@ -144,6 +144,33 @@ def _grow(bbox, shape, by: float = 0.5):
     return max(0, x1 - dx), max(0, y1 - dy), min(shape[1], x2 + dx), min(shape[0], y2 + dy)
 
 
+def fetch_models(app: App, retry_s: float = 60.0) -> None:
+    """Download missing models on the first start (the installer packages carry none), showing
+    progress on the web page. Waits and retries while there is no internet connection."""
+    from . import models
+
+    live = app.live
+    if not models.missing(app.cfg):
+        return
+
+    def progress(done: int, total: int) -> None:
+        live.models = (f"Downloading the face recognition models: {done / total:.0%} of {total >> 20} MB"
+                       if total else f"Downloading the face recognition models: {done >> 20} MB")
+
+    while True:
+        live.models = "Downloading the face recognition models…"
+        try:
+            models.ensure(app.cfg, progress)
+            live.models = None
+            log.info("Models downloaded to %s", app.cfg.path("models"))
+            return
+        except Exception as exc:
+            live.models = (f"Could not download the face recognition models ({exc}). "
+                           f"Check the internet connection; trying again in a minute")
+            log.error(live.models)
+            time.sleep(retry_s)
+
+
 def run(cfg: Config) -> None:
     from .camera import Camera
     from .processing import FrameProcessor
@@ -162,6 +189,7 @@ def run(cfg: Config) -> None:
 
     threading.Thread(target=_leave_sync_loop, args=(app,), name="leave-sync", daemon=True).start()
 
+    fetch_models(app)
     recognizer = None
     try:
         recognizer = app.recognizer()

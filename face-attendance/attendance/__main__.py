@@ -19,7 +19,7 @@ def setup_logging(cfg) -> None:
     log_dir = cfg.path(cfg.data_dir)
     log_dir.mkdir(parents=True, exist_ok=True)
     handlers = [
-        logging.StreamHandler(),
+        *([logging.StreamHandler()] if sys.stderr else []),  # none in the packaged Windows program
         logging.handlers.RotatingFileHandler(log_dir / "attendance.log", maxBytes=5_000_000, backupCount=5,
                                              encoding="utf-8"),
     ]
@@ -53,6 +53,7 @@ def main() -> None:
     p = sub.add_parser("report", help="print the summary for a day")
     p.add_argument("--day", default=None, help="YYYY-MM-DD, default today")
     sub.add_parser("test-chat", help="send a test message to Google Chat")
+    sub.add_parser("self-test", help="check that the libraries and the models load (used after building the packages)")
     args = parser.parse_args()
 
     cfg = config_module.load(args.config)
@@ -89,6 +90,17 @@ def main() -> None:
         from .pipeline import App
 
         benchmark(App(cfg), Path(args.video), args.modes)
+    elif args.command == "self-test":
+        import numpy as np
+
+        from .pipeline import App
+        from .web import create_app
+
+        app = App(cfg)
+        faces = app.recognizer().detect(np.zeros((480, 640, 3), dtype=np.uint8))
+        pages = create_app(app).test_client()
+        assert pages.get("/").status_code in (200, 302) and pages.get("/settings").status_code == 200
+        print(f"Self-test passed: models load, {len(faces)} faces in a black picture, pages render.")
     elif args.command in ("report", "test-chat"):
         from .pipeline import App
 

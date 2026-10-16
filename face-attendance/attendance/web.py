@@ -7,6 +7,7 @@ import hmac
 import io
 import re
 import secrets
+import sys
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -15,7 +16,7 @@ from urllib.parse import urlparse
 from flask import (Flask, Response, abort, flash, jsonify, redirect, render_template, request,
                    send_from_directory, url_for)
 
-from . import leave_api, settings
+from . import __version__, leave_api, settings, updater
 from . import setup as first_setup
 from .service import SOURCES, minutes_late
 from .store import LEAVE_KINDS
@@ -87,7 +88,7 @@ def create_app(core: "App") -> Flask:
     @app.context_processor
     def common():
         return {"pending": store.pending_group_count(), "nav": request.endpoint, "SOURCES": SOURCES,
-                "setup_open": first_setup.open_count(core),
+                "setup_open": first_setup.open_count(core), "models_status": core.live.models,
                 "leave_label": lambda kind: LEAVE_KINDS.get(kind, kind), "WEEKDAYS": WEEKDAYS}
 
     def leave_status() -> dict:
@@ -488,6 +489,10 @@ def create_app(core: "App") -> Flask:
                        in_window=service.in_window(service.now()),
                        frame_age=round(time.time() - frame_time, 1) if frame_time else None)
 
+    @app.get("/models.json")
+    def models_json():
+        return jsonify(status=live.models)
+
     @app.post("/camera/check")
     def camera_check():
         """Test a camera address typed on a page, before it is saved."""
@@ -518,7 +523,8 @@ def create_app(core: "App") -> Flask:
     @app.get("/settings")
     def settings_page():
         return render_template("settings.html", s=settings.current(cfg), cfg=cfg, leave=leave_status(),
-                               pose=core.pose.describe())
+                               pose=core.pose.describe(), version=__version__, packaged=getattr(sys, "frozen", False),
+                               update=updater.read_status(core.data_dir))
 
     @app.post("/settings")
     def save_settings():
@@ -545,6 +551,13 @@ def create_app(core: "App") -> Flask:
         store.log(service.now(), user(), "change settings",
                   ", ".join(f"{s}.{n}" if s else n for s, f in changes.items() for n in f))
         return done("Settings saved and applied.", "settings_page")
+
+    @app.post("/settings/update-now")
+    def update_now():
+        (core.data_dir / updater.REQUEST_FILE).touch()  # picked up by the launcher within half a minute
+        store.log(service.now(), user(), "check for updates", "")
+        return done("Checking for a new version. If there is one, it is installed and the program restarts "
+                    "by itself in a minute or two.", "settings_page")
 
     @app.post("/settings/pose-reset")
     def reset_pose():

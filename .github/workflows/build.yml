@@ -1,0 +1,114 @@
+# Builds the Face Attendance packages (Python and all libraries included, models downloaded on the
+# first start) on each operating system. Pushing a tag such as v1.2.0 publishes them as a GitHub
+# release, which installed copies pick up as an automatic update.
+name: Build packages
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: windows-latest, platform: windows-x64 }
+          - { os: macos-latest, platform: macos-arm64 }
+          - { os: macos-15-intel, platform: macos-x64 }
+          - { os: ubuntu-22.04, platform: linux-x64 }  # older glibc: runs on more Linux versions
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+        working-directory: face-attendance
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Version
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+            sed -i.bak "s/^__version__ = .*/__version__ = \"$VERSION\"  # set from the release tag/" attendance/__init__.py
+          else
+            VERSION=$(sed -n 's/^__version__ = "\(.*\)".*/\1/p' attendance/__init__.py)
+          fi
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "Building $VERSION"
+
+      - name: Build
+        run: |
+          python -m pip install --upgrade pip
+          pip install . pyinstaller certifi
+          pyinstaller --noconfirm packaging/face-attendance.spec
+
+      - name: Test the package (download the models, load them, render the pages)
+        run: |
+          case "${{ matrix.platform }}" in
+            windows-*) EXE=dist/FaceAttendance/FaceAttendance.exe ;;
+            macos-*)   EXE=dist/FaceAttendance.app/Contents/MacOS/FaceAttendance ;;
+            *)         EXE=dist/FaceAttendance/FaceAttendance ;;
+          esac
+          export FACE_ATTENDANCE_HOME="$RUNNER_TEMP/home"
+          "$EXE" download-models
+          "$EXE" self-test
+
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Compress-Archive -Path dist/FaceAttendance -DestinationPath "dist/FaceAttendance-${{ matrix.platform }}.zip"
+          if (-not (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe")) { choco install innosetup -y --no-progress }
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DVersion=$env:VERSION" packaging/windows/FaceAttendance.iss
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+
+      - name: Package (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          tar -C dist -czf "dist/FaceAttendance-${{ matrix.platform }}.tar.gz" FaceAttendance.app
+          mkdir -p dmg && cp -R dist/FaceAttendance.app dmg/ && ln -s /Applications dmg/Applications
+          hdiutil create -volname "Face Attendance" -srcfolder dmg -ov -format UDZO \
+            "dist/FaceAttendance-$VERSION-${{ matrix.platform }}.dmg"
+
+      - name: Package (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          tar -C dist -czf "dist/FaceAttendance-${{ matrix.platform }}.tar.gz" FaceAttendance
+          mkdir -p "pkg/FaceAttendance-$VERSION" && cp -R dist/FaceAttendance packaging/linux/*.sh "pkg/FaceAttendance-$VERSION/"
+          chmod +x "pkg/FaceAttendance-$VERSION/"*.sh
+          tar -C pkg -czf "dist/FaceAttendance-$VERSION-${{ matrix.platform }}-installer.tar.gz" "FaceAttendance-$VERSION"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.platform }}
+          path: |
+            face-attendance/dist/*.zip
+            face-attendance/dist/*.tar.gz
+            face-attendance/dist/*.exe
+            face-attendance/dist/*.dmg
+          if-no-files-found: error
+
+  release:
+    # Publishes what was built even if one platform failed, so the others still get the update.
+    if: ${{ !cancelled() && startsWith(github.ref, 'refs/tags/v') }}
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: assets
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: assets/*
+          generate_release_notes: true
+          body: |
+            **Install:** Windows `FaceAttendance-Setup-*.exe` · macOS `*.dmg` · Linux `*-installer.tar.gz` (unpack, run `./install.sh`).
+            The face models (about 300 MB) are downloaded on the first start. Installed copies update themselves.
+            The other `FaceAttendance-<platform>` archives are used by the automatic update.

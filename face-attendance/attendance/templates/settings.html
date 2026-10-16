@@ -127,6 +127,21 @@
       {{ field('', 'retention_days', 'Delete camera photos after (days)', 'Reference photos are kept', type='number') }}
       <label class="field grow">Healthchecks.io ping URL (alert if this computer stops)<input name="healthcheck_url" value="{{ s['']['healthcheck_url'] }}"></label>
     </div>
+    <hr>
+    <h2>Updates</h2>
+    <p class="hint" style="margin-top:0">Version {{ version }}.
+      {% if update.checked_at %}Last checked {{ update.checked_at|replace('T', ' ') }}{% if update.latest %}, newest is {{ update.latest }}{% endif %}.{% endif %}
+      {% if update.state %}<b>{{ update.state }}.</b>{% endif %}
+      {% if update.error %}<span style="color:var(--bad)">{{ update.error }}</span>{% endif %}</p>
+    {% if packaged %}
+    <div class="form-row" style="align-items:center">
+      {{ check('updates', 'enabled', 'Install new versions automatically (checked every few hours, installed outside camera hours)') }}
+      <button class="btn-sm" formaction="{{ url_for('update_now') }}" formnovalidate>Check now</button>
+    </div>
+    {% else %}
+    <input type="hidden" name="updates.enabled" value="{{ 'on' if s.updates.enabled }}">
+    <p class="hint">Automatic updates are part of the installed program; this copy runs from the source code.</p>
+    {% endif %}
   </section>
 
   <section class="card tab" id="hr">
