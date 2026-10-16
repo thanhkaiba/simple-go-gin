@@ -22,7 +22,7 @@ from pathlib import Path
 
 import numpy as np
 
-from .gallery import MIN_PEOPLE_TO_CENTER, Gallery
+from ..vision.gallery import MIN_PEOPLE_TO_CENTER, Gallery
 
 UNKNOWN_DIR = "_unknown"
 THRESHOLDS = [round(float(x), 3) for x in np.arange(0.20, 0.76, 0.025)]
@@ -191,7 +191,7 @@ def _summary(results: dict[str, Row | None]) -> None:
 
 
 def evaluate(cfg, gallery_dir: Path, test_dir: Path | None, backends: list[str]) -> None:
-    from .recognizer import FaceRecognizer
+    from ..vision.recognizer import FaceRecognizer
 
     if test_dir is None:
         print("No --test folder: each photo (or visit folder) is tested against all the other photos (leave-one-out).")

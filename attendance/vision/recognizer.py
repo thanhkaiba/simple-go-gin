@@ -20,7 +20,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from .config import RecognitionConfig
+from ..core.config import RecognitionConfig
 
 # ArcFace reference positions of the eyes, nose tip and mouth corners in a 112x112 crop.
 ARCFACE_LANDMARKS = np.array(

@@ -1,6 +1,6 @@
 # Enough to run the tests; they need no face models or camera.
 numpy>=1.26
-opencv-python-headless>=4.9
+opencv-python-headless>=4.9,<=4.11.0.86  # Keep FFmpeg; allow older wheels for macOS 12.
 Flask>=3.0
 PyYAML>=6.0
 pytest>=8.0

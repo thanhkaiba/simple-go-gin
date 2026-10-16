@@ -30,4 +30,4 @@ and expects JSON like this:
 
 **If the HR system is unreachable**, the last copy keeps being used; the Today page and the chat messages then say when the data was last updated.
 
-**If the HR system uses a different format**, only the `parse()` function in `attendance/leave_api.py` needs changing.
+**If the HR system uses a different format**, only the `parse()` function in `attendance/integrations/leave_api.py` needs changing.

@@ -6,7 +6,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from .config import Config
+from ..core.config import Config
 
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
 MIN_PHOTOS = 5
@@ -27,7 +27,7 @@ def images_in(folder: Path, subfolders: bool = False) -> list[Path]:
 
 
 def enroll(cfg: Config, faces_dir: Path) -> None:
-    from .pipeline import App
+    from ..core.pipeline import App
 
     app = App(cfg)
     employees = app.store.employees()

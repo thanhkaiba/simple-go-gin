@@ -27,8 +27,8 @@ import urllib.parse
 import urllib.request
 from typing import Callable
 
-from .config import Config
-from .store import Store
+from ..core.config import Config
+from ..store import Store
 
 log = logging.getLogger(__name__)
 

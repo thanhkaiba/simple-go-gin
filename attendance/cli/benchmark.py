@@ -10,7 +10,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .processing import FrameProcessor
+from ..vision.processing import FrameProcessor
 
 
 @dataclass

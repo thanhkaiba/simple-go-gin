@@ -17,9 +17,9 @@ import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import __version__
+from .. import __version__
 from .service import SOURCES, minutes_late
-from .store import Checkin, Sighting, body_photo, scene_photo
+from ..store import Checkin, Sighting, body_photo, scene_photo
 
 FILE_KINDS = ("scene", "face", "body")
 

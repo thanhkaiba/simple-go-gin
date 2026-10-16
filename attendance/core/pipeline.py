@@ -11,16 +11,16 @@ from pathlib import Path
 from . import settings
 from .backup import Backup
 from .config import Config
-from .faces import FaceLibrary
-from .gallery import Gallery
-from .leave_api import LeaveSync
 from .evidence import evidence_digest
-from .live import FrameHealth, LiveStatus
-from .posecal import PoseCalibration
-from .notifier import GoogleChat
+from ..vision.faces import FaceLibrary
+from ..vision.gallery import Gallery
+from ..integrations.leave_api import LeaveSync
+from ..vision.live import FrameHealth, LiveStatus
+from ..vision.posecal import PoseCalibration
+from ..integrations.notifier import GoogleChat
 from .service import AttendanceService
-from .store import Store, body_photo, scene_photo
-from .tracker import Decision, vote_for
+from ..store import Store, body_photo, scene_photo
+from ..vision.tracker import Decision, vote_for
 
 log = logging.getLogger(__name__)
 
@@ -57,7 +57,7 @@ class App:
 
     def recognizer(self):
         if self._recognizer is None:
-            from .recognizer import FaceRecognizer
+            from ..vision.recognizer import FaceRecognizer
 
             self._recognizer = FaceRecognizer(self.cfg.recognition, self.cfg.base_dir)
         return self._recognizer
@@ -66,7 +66,7 @@ class App:
 def save_crop(app: App, decision: Decision, ts: dt.datetime) -> str | None:
     if decision.crop is None:
         return None
-    from .faces import encode_jpeg
+    from ..vision.faces import encode_jpeg
 
     who = decision.employee_id if decision.kind == "identified" else "unknown"
     rel = Path("crops") / ts.strftime("%Y-%m-%d") / f"{ts:%H%M%S_%f}_{who}.jpg"
@@ -91,7 +91,7 @@ def render_scene(frame, bbox, label: str, max_width: int = 1280) -> bytes:
     picture is evidence on its own, without the database."""
     import cv2
 
-    from .faces import encode_jpeg
+    from ..vision.faces import encode_jpeg
 
     canvas = frame.copy()
     h, w = canvas.shape[:2]
@@ -149,7 +149,7 @@ def face_label(app: App, face, candidates) -> tuple[str, tuple[int, int, int]]:
 def draw(frame, labelled, people=(), area=None) -> bytes:
     import cv2
 
-    from .faces import encode_jpeg
+    from ..vision.faces import encode_jpeg
 
     canvas = frame.copy()
     if area is not None:  # dim what is not analysed and outline the area
@@ -182,7 +182,7 @@ def _grow(bbox, shape, by: float = 0.5):
 def fetch_models(app: App, retry_s: float = 60.0) -> None:
     """Download missing models on the first start (the installer packages carry none), showing
     progress on the web page. Waits and retries while there is no internet connection."""
-    from . import models
+    from ..vision import models
 
     live = app.live
     if not models.missing(app.cfg):
@@ -207,15 +207,15 @@ def fetch_models(app: App, retry_s: float = 60.0) -> None:
 
 
 def run(cfg: Config) -> None:
-    from .camera import Camera
-    from .processing import FrameProcessor
-    from .recognizer import enhance_low_light
+    from ..vision.camera import Camera
+    from ..vision.processing import FrameProcessor
+    from ..vision.recognizer import enhance_low_light
 
     app = App(cfg)
     service, live = app.service, app.live
     app.chat.start_background()  # a slow webhook must not hold up face recognition
     if cfg.web.enabled:
-        from .web import create_app
+        from ..web import create_app
 
         web = create_app(app)
         threading.Thread(target=lambda: web.run(host=cfg.web.host, port=cfg.web.port, threaded=True),

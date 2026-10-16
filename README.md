@@ -46,7 +46,7 @@ The camera only runs during the camera hours (default 08:00–11:00). Someone wh
 
 ## HR system
 
-`GET <url>?from=…&to=…` with a bearer token, returning holidays, make-up work days and leave as JSON; refreshed every 15 minutes. Format and options: [docs/hr-api.md](docs/hr-api.md). Other formats: change `parse()` in `attendance/leave_api.py`.
+`GET <url>?from=…&to=…` with a bearer token, returning holidays, make-up work days and leave as JSON; refreshed every 15 minutes. Format and options: [docs/hr-api.md](docs/hr-api.md). Other formats: change `parse()` in `attendance/integrations/leave_api.py`.
 
 ## Accuracy and licence
 

@@ -16,9 +16,9 @@ from typing import Callable
 
 import numpy as np
 
-from .config import Config
+from ..core.config import Config
 from .gallery import Gallery
-from .store import Store
+from ..store import Store
 
 log = logging.getLogger(__name__)
 
@@ -146,7 +146,7 @@ class FaceLibrary:
     def reembed_missing(self) -> int:
         """Embed stored reference photos that have no embedding for the current model yet
         (e.g. after switching backend). Returns how many were added."""
-        from .enroll import read_image
+        from ..cli.enroll import read_image
 
         have = {r.image for r in self.store.references(self.model_id) if r.image}
         added = 0

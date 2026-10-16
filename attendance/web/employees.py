@@ -1,0 +1,141 @@
+"""Routes for managing employees, CSV import, reference photo uploads, and @mention tests."""
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+from flask import Flask, abort, flash, redirect, render_template, request, url_for
+
+from . import current_user, done, failed
+
+if TYPE_CHECKING:
+    from ..core.pipeline import App
+
+
+def register(app: Flask, core: "App") -> None:
+    cfg, store, service, library = core.cfg, core.store, core.service, core.library
+
+    @app.get("/employees")
+    def employees():
+        counts = {}
+        thumbs = {}
+        for r in store.references(cfg.recognition.model_id()):
+            counts[r.employee_id] = counts.get(r.employee_id, 0) + 1
+            if r.image and r.employee_id not in thumbs:
+                thumbs[r.employee_id] = r.image
+        names = {e.id: e.name for e in store.all_employees()}
+        return render_template("employees.html", people=store.all_employees(), counts=counts, thumbs=thumbs,
+                               look_alikes=library.look_alikes(), names=names,
+                               on_leave=store.leaves_on(service.now().date()))
+
+    @app.post("/employees")
+    def add_employee():
+        try:
+            store.add_employee(request.form.get("id", ""), request.form.get("name", ""))
+        except ValueError as exc:
+            return failed(str(exc), "employees")
+        store.log(service.now(), current_user(cfg), "add employee", f"{request.form['id']} {request.form['name']}")
+        return done("Employee added. Now upload their photos.", "employee", employee_id=request.form["id"].strip())
+
+    @app.post("/employees/import")
+    def import_employees():
+        file = request.files.get("file")
+        if not file:
+            return failed("Choose a CSV file.", "employees")
+        try:
+            n = store.import_employees(file.read().decode("utf-8-sig"))
+        except (ValueError, UnicodeDecodeError) as exc:
+            return failed(f"Import failed: {exc}", "employees")
+        library.reload()
+        store.log(service.now(), current_user(cfg), "import employees", f"{n} rows")
+        return done(f"Imported {n} employees.", "employees")
+
+    @app.get("/employees/<employee_id>")
+    def employee(employee_id: str):
+        person = store.employee(employee_id) or abort(404)
+        refs = store.references(cfg.recognition.model_id(), employee_id)
+        return render_template("employee.html", person=person, refs=refs,
+                               leaves=store.leaves(employee_id=employee_id, ending_after=service.now().date()))
+
+    @app.post("/employees/<employee_id>")
+    def update_employee(employee_id: str):
+        store.employee(employee_id) or abort(404)
+        try:
+            store.update_employee(employee_id, request.form.get("name", ""), request.form.get("active") == "on",
+                                  request.form.get("chat_user"), request.form.get("exempt") == "on")
+        except ValueError as exc:
+            return failed(str(exc), "employee", employee_id=employee_id)
+        library.reload()
+        store.log(service.now(), current_user(cfg), "edit employee", f"{employee_id} {request.form.get('name')} "
+                  f"active={request.form.get('active') == 'on'} exempt={request.form.get('exempt') == 'on'}")
+        return done("Saved.", "employee", employee_id=employee_id)
+
+    @app.post("/employees/<employee_id>/test-mention")
+    def test_mention(employee_id: str):
+        person = store.employee(employee_id) or abort(404)
+        if not cfg.google_chat.webhook_url:
+            return failed("Set the Google Chat webhook in Settings first.", "employee", employee_id=employee_id)
+        if not person.chat_user:
+            return failed("Save the Google Chat user ID first.", "employee", employee_id=employee_id)
+        try:
+            core.chat.send_now(f"Test mention from the attendance system: {service.mention(employee_id)}")
+        except Exception as exc:
+            return failed(f"Sending failed: {exc}", "employee", employee_id=employee_id)
+        return done(f"Test sent. Check in Google Chat that {person.name} is highlighted as a mention.",
+                    "employee", employee_id=employee_id)
+
+    @app.post("/employees/<employee_id>/photos")
+    def upload_photos(employee_id: str):
+        from ..vision.faces import decode_image
+
+        store.employee(employee_id) or abort(404)
+        files = [f for f in request.files.getlist("photos") if f.filename]
+        if not files:
+            return failed("Choose one or more photos.", "employee", employee_id=employee_id)
+        try:
+            core.recognizer()
+        except Exception as exc:
+            return failed(f"Face models are not available: {exc}", "employee", employee_id=employee_id)
+        added = 0
+        for f in files:
+            try:
+                result = library.add_photo(employee_id, decode_image(f.read()))
+            except ValueError as exc:
+                flash(f"{f.filename}: {exc}", "error")
+                continue
+            if result.ok:
+                added += 1
+            else:
+                flash(f"{f.filename}: {result.message}", "error")
+            for w in result.warnings:
+                flash(f"{f.filename}: {w}", "warn")
+        store.log(service.now(), current_user(cfg), "upload photos", f"{employee_id}: {added} added")
+        if added:
+            flash(f"{added} photo(s) added.", "ok")
+        return redirect(url_for("employee", employee_id=employee_id))
+
+    @app.post("/employees/<employee_id>/photos/delete")
+    def delete_photo(employee_id: str):
+        refs = store.references(cfg.recognition.model_id(), employee_id)
+        image = request.form.get("image", "")
+        if request.form.get("ref_id"):  # a reference without a saved photo
+            ref_id = int(request.form["ref_id"])
+            if ref_id not in {r.id for r in refs}:
+                abort(400)
+            store.delete_reference(ref_id)
+            library.reload()
+            image = f"#{ref_id}"
+        elif image in {r.image for r in refs}:
+            library.delete_photo(image)
+        else:
+            abort(400)
+        store.log(service.now(), current_user(cfg), "delete photo", f"{employee_id} {image}")
+        return done("Photo deleted.", "employee", employee_id=employee_id)
+
+    @app.post("/employees/<employee_id>/delete")
+    def delete_employee(employee_id: str):
+        person = store.employee(employee_id) or abort(404)
+        if request.form.get("confirm") != employee_id:
+            return failed("Type the employee id to confirm.", "employee", employee_id=employee_id)
+        library.delete_employee(employee_id)
+        store.log(service.now(), current_user(cfg), "delete employee", f"{employee_id} {person.name}")
+        return done(f"{person.name} and their face data were deleted.", "employees")

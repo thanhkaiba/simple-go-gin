@@ -112,7 +112,7 @@ def local_timezone() -> str:
 
 def write_config(home: Path, port: int = DEFAULT_PORT) -> Path:
     """config.yaml for a new install, like the script installers write. Returns its path."""
-    from .setup import lan_address
+    from attendance.web.setup import lan_address
 
     config = home / "config.yaml"
     if config.exists():
@@ -134,7 +134,7 @@ def write_config(home: Path, port: int = DEFAULT_PORT) -> Path:
 
 
 def page_url(config: Path) -> str:
-    from . import config as config_module
+    from attendance.core import config as config_module
 
     return f"http://localhost:{config_module.load(config).web.port}"
 
@@ -271,7 +271,7 @@ def stop(home: Path) -> bool:
 
 def supervise(config: Path, instance: Instance) -> None:
     """Keep the attendance program running; when an update is ready, restart into the new version."""
-    from .updater import Updater, remove_old
+    from attendance.cli.updater import Updater, remove_old
 
     home = config.parent
     updates = Updater(home, config) if frozen() else None
@@ -319,7 +319,7 @@ def open_when_ready(url: str, wait_s: float = 120) -> None:
 
 def hand_over(home: Path, argv: list[str]) -> bool:
     """Start the newest downloaded version instead of this one. True if it did."""
-    from .updater import newer_installed
+    from attendance.cli.updater import newer_installed
 
     newer = newer_installed(home) if frozen() else None
     if newer is None:
@@ -355,7 +355,7 @@ def main(argv: list[str] | None = None) -> None:
         if "--config" not in argv:
             argv = ["--config", str(write_config(home)), *argv]
         sys.argv = [sys.argv[0], *argv]
-        from .__main__ import main as attendance_main
+        from attendance.__main__ import main as attendance_main
 
         attendance_main()
         return

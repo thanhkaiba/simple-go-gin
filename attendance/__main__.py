@@ -8,7 +8,7 @@ import logging.handlers
 import sys
 from pathlib import Path
 
-from . import config as config_module
+from .core import config as config_module
 
 
 def setup_logging(cfg) -> None:
@@ -65,38 +65,38 @@ def main() -> None:
     setup_logging(cfg)
 
     if args.command == "run":
-        from .pipeline import run
+        from .core.pipeline import run
 
         run(cfg)
     elif args.command == "download-models":
-        from .models import download, download_person
+        from .vision.models import download, download_person
 
         if args.person:
             download_person(args.person, cfg.path("models"))
         else:
             download(args.backend or cfg.recognition.backend, cfg.path("models"))
     elif args.command == "enroll":
-        from .enroll import enroll
+        from .cli.enroll import enroll
 
         enroll(cfg, cfg.path(args.faces))
     elif args.command == "evaluate":
         if args.from_data:
-            from .evaluate import evaluate_data
-            from .pipeline import App
+            from .cli.evaluate import evaluate_data
+            from .core.pipeline import App
 
             evaluate_data(App(cfg), args.days)
         else:
-            from .evaluate import evaluate
+            from .cli.evaluate import evaluate
 
             evaluate(cfg, cfg.path(args.gallery), cfg.path(args.test) if args.test else None,
                      args.backends or [cfg.recognition.backend])
     elif args.command == "benchmark":
-        from .benchmark import benchmark
-        from .pipeline import App
+        from .cli.benchmark import benchmark
+        from .core.pipeline import App
 
         benchmark(App(cfg), Path(args.video), args.modes)
     elif args.command == "backup":
-        from .pipeline import App
+        from .core.pipeline import App
 
         app = App(cfg)
         if args.folder:
@@ -106,13 +106,13 @@ def main() -> None:
         if not result.ok:
             raise SystemExit(1)
     elif args.command == "restore":
-        from .backup import restore
+        from .core.backup import restore
 
         print(restore(cfg, Path(args.folder), args.snapshot))
     elif args.command == "self-test":
         import numpy as np
 
-        from .pipeline import App
+        from .core.pipeline import App
         from .web import create_app
 
         app = App(cfg)
@@ -121,7 +121,7 @@ def main() -> None:
         assert pages.get("/").status_code in (200, 302) and pages.get("/settings").status_code == 200
         print(f"Self-test passed: models load, {len(faces)} faces in a black picture, pages render.")
     elif args.command in ("report", "test-chat"):
-        from .pipeline import App
+        from .core.pipeline import App
 
         app = App(cfg)
         if args.command == "report":

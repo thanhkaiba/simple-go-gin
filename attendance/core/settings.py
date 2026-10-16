@@ -9,7 +9,7 @@ import copy
 import json
 
 from .config import Config
-from .store import Store
+from ..store import Store
 
 KEY = "settings"
 

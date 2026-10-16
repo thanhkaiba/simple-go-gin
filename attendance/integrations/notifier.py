@@ -12,7 +12,7 @@ import threading
 import urllib.request
 from typing import Callable
 
-from .store import Store
+from ..store import Store
 
 log = logging.getLogger(__name__)
 

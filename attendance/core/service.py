@@ -19,14 +19,14 @@ from typing import TYPE_CHECKING, Callable
 
 import numpy as np
 
-from . import leave_api
+from ..integrations import leave_api
 from .config import Config, parse_clock
-from .gallery import Gallery
-from .notifier import GoogleChat
-from .store import LEAVE_KINDS, Store, body_photo, scene_photo
+from ..vision.gallery import Gallery
+from ..integrations.notifier import GoogleChat
+from ..store import LEAVE_KINDS, Store, body_photo, scene_photo
 
 if TYPE_CHECKING:
-    from .faces import FaceLibrary
+    from ..vision.faces import FaceLibrary
 
 log = logging.getLogger(__name__)
 

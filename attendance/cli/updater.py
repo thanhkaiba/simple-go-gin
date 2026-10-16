@@ -22,7 +22,7 @@ import urllib.request
 import zipfile
 from pathlib import Path
 
-from . import __version__
+from .. import __version__
 
 log = logging.getLogger(__name__)
 
@@ -148,8 +148,8 @@ def read_status(data: Path) -> dict:
 
 def load_settings(config: Path):
     """config.yaml with the values saved on the Settings page, read fresh each time."""
-    from . import config as config_module, settings
-    from .store import Store
+    from ..core import config as config_module, settings
+    from ..store import Store
 
     cfg = config_module.load(config)
     store = Store(cfg.path(cfg.data_dir) / "attendance.db")
