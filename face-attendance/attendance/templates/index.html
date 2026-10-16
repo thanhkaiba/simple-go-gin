@@ -137,12 +137,12 @@
       <strong>Recorded the wrong person?</strong>
       <div class="form-row" style="flex-wrap:nowrap">
         <select name="to" id="edit-to" required style="flex:1; min-width:0">
-          <option value="">It was…</option>
+          <option value="">Who was it really?</option>
           {% for id, name in employees.items() %}<option value="{{ id }}">{{ name }}</option>{% endfor %}
         </select>
-        <button>Move</button>
+        <button>Move to them</button>
       </div>
-      <span class="hint">Moves the sighting the arrival came from (time and photo) to the right person.</span>
+      <span class="hint">Moves this arrival (time and photo) to the person you pick, and learns the face for them.</span>
     </form>
     <form method="post" id="form-delete" data-confirm="Delete this arrival? If the person really comes later, the camera records them again.">
       <div class="form-row"><button class="danger">{{ icon('trash') }}Delete this arrival</button></div>
@@ -154,11 +154,11 @@
     <a class="photo" target="_blank"><img class="avatar" alt=""></a>
     <div class="info"><strong class="time tnum"></strong><div class="small muted meta"></div></div>
     <form method="post" class="move">
-      <select name="to" required><option value="">It was…</option>
+      <select name="to" required title="Wrong person? Pick who it really was"><option value="">Really was…</option>
         {% for id, name in employees.items() %}<option value="{{ id }}">{{ name }}</option>{% endfor %}</select>
       <button class="btn-sm">Move</button>
     </form>
-    <form method="post" class="reject"><button class="btn-sm" title="Not this person">Not them</button></form>
+    <form method="post" class="reject"><button class="btn-sm" title="Nobody on the list, e.g. a visitor">Not them</button></form>
     <form method="post" class="restore"><button class="btn-sm">Restore</button></form>
   </div>
 </template>

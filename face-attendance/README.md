@@ -169,9 +169,9 @@ The page follows the computer's light or dark theme; the moon/sun button at the 
   - The page refreshes itself every minute while it shows today.
   - **Correcting:** click a person (or their *Edit* button) to open a small window where you can:
     - see **every time the camera saw them** that day, with the photo; the one their arrival comes from is outlined in green;
-    - fix **one sighting**: *It was… → Move* (it was someone else) or *Not them* (a visitor, say). The arrival is then **recomputed from the remaining sightings**. Example: Alice was taken for Bob at 9:20 and Bob really came at 10:15. Move the 9:20 sighting to Alice and Bob is shown late at 10:15, instead of disappearing. A moved face is also **learned as a reference photo** of the right person: these are the faces the camera found hardest (can be turned off under Settings → Recognition → Advanced);
+    - fix **one sighting**: *Really was… → Move* (the camera took someone else for this person) or *Not them* (a visitor, say). The arrival is then **recomputed from the remaining sightings**. Example: Alice was taken for Bob at 9:20 and Bob really came at 10:15. Move the 9:20 sighting to Alice and Bob is shown late at 10:15, instead of disappearing. A moved face is also **learned as a reference photo** of the right person: these are the faces the camera found hardest (can be turned off under Settings → Recognition → Advanced);
     - **change or add the arrival time**, e.g. someone who missed the camera. A time typed in wins over the camera;
-    - **fix a wrong person** for the arrival itself ("Recorded the wrong person? It was…");
+    - **fix a wrong person** for the arrival itself ("Recorded the wrong person? Who was it really?");
     - **delete** a wrong arrival. If the person really comes in later, the camera records them again.
 
   The arrival is the earliest sighting that has not been removed. Every sighting is kept (with its photo, until the retention period), so nothing the camera saw is lost when something is corrected.
