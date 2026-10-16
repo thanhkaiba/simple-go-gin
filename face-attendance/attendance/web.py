@@ -112,6 +112,12 @@ def create_app(core: "App") -> Flask:
                 "skipped": skipped.astimezone(service.tz) if skipped else None,
                 "missing_chat": no_id, "send_at": lm.send_at or cfg.schedule.window_end, "auto": lm.auto_send}
 
+    def deadline_status(day: dt.date) -> dict:
+        """What happened at the late time: the not-seen list was posted, or skipped because everyone was in."""
+        sent, skipped = store.notice_time(day, "deadline"), store.notice_time(day, "deadline_skipped")
+        return {"sent": sent.astimezone(service.tz) if sent else None,
+                "skipped": skipped.astimezone(service.tz) if skipped else None}
+
     def _back(endpoint: str, **kwargs):
         """Where to go after a form: the page it came from when it says so (setup forms), else `endpoint`."""
         back = request.form.get("back", "")
@@ -148,7 +154,8 @@ def create_app(core: "App") -> Flask:
         return render_template("index.html", rep=rep, employees=store.employees(), sightings=sightings,
                                late=lambda a: minutes_late(a, rep.window), today=today,
                                prev_day=day - dt.timedelta(days=1), next_day=day + dt.timedelta(days=1),
-                               leave=leave_status(), started=service.now() >= rep.window.start, late_msg=late_message_status(day))
+                               leave=leave_status(), started=service.now() >= rep.window.start,
+                               late_msg=late_message_status(day), deadline=deadline_status(day))
 
     @app.post("/day/<day>/<employee_id>/set")
     def set_arrival(day: str, employee_id: str):

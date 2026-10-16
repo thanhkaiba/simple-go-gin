@@ -83,6 +83,17 @@ class DayReport:
     def total(self) -> int:
         return len(self.on_time) + len(self.late) + len(self.not_seen)
 
+    @property
+    def last_arrival(self) -> Arrival | None:
+        arrivals = self.on_time + self.late
+        return max(arrivals, key=lambda a: a.ts) if arrivals else None
+
+    @property
+    def all_in(self) -> bool:
+        """Everyone expected has arrived on time: nobody is missing or late and nothing is left to
+        review, so the late-time message would have nothing to say."""
+        return self.workday and bool(self.on_time) and not self.not_seen and not self.late and not self.pending_unknowns
+
 
 def minutes_late(a: Arrival, w: Window) -> int:
     return int((a.ts - w.late_after).total_seconds() // 60)
@@ -519,6 +530,8 @@ class AttendanceService:
             f"On time: {len(rep.on_time)} · Late: {len(rep.late)} · Not seen: {len(rep.not_seen)}"
             f" · On leave: {len(rep.on_leave)} · Unidentified faces: {rep.pending_unknowns}",
         ]
+        if rep.all_in and rep.last_arrival is not None:
+            lines.append(f"✅ Everyone was in by {rep.last_arrival.time} 🎉")
         if rep.late:
             lines.append("*Late:*")
             lines += [f"• {a.name}: {a.time} ({minutes_late(a, w)} min late)" for a in rep.late]
@@ -583,10 +596,17 @@ class AttendanceService:
             w = self.window(day)
             self._track_health(now, w, camera_ok, camera_state)
 
-            if now >= w.late_after and not self.store.notice_sent(day, "deadline"):
-                if now < w.end:  # after window_end the summary covers it
-                    self._send(self.deadline_text(self.report(day)), day)
-                self.store.mark_notice(day, "deadline", now)
+            if (now >= w.late_after and not self.store.notice_sent(day, "deadline")
+                    and not self.store.notice_sent(day, "deadline_skipped")):
+                rep = self.report(day)
+                if rep.all_in:
+                    # Everyone was in before the late time: a list of nobody is just noise.
+                    log.info("Everyone arrived on time; no %s message", w.late_after.strftime("%H:%M"))
+                    self.store.mark_notice(day, "deadline_skipped", now)
+                else:
+                    if now < w.end:  # after window_end the summary covers it
+                        self._send(self.deadline_text(rep), day)
+                    self.store.mark_notice(day, "deadline", now)
 
             batch = dt.timedelta(minutes=self.cfg.google_chat.unknown_batch_minutes)
             if now < w.end and (self._last_unknown_notice is None or now - self._last_unknown_notice >= batch):

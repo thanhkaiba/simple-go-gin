@@ -115,6 +115,37 @@ def test_unclear_face_like_someone_checked_in_is_reviewed_when_setting_is_zero(e
     assert service.on_unknown(at(9, 6), "b.jpg", person_vector(21), "B", 0.35) is not None
 
 
+def test_no_late_time_message_when_everyone_is_in(env):
+    service, store, clock, sent = env
+    store.update_employee("A", "Alice", True, exempt=True)  # the boss: not expected by the late time
+    run_until(service, clock, at(9, 30))
+    service.on_identified("B", at(9, 10), 0.7, None)
+    service.on_identified("C", at(9, 12), 0.7, None)
+    run_until(service, clock, at(10, 5))
+    rep = service.report(DAY)
+    assert rep.all_in and rep.last_arrival.time == "09:12"
+    assert not [m for m in sent if m.startswith("⏰")]  # everyone expected was in: no 10:00 list
+    assert store.notice_sent(DAY, "deadline_skipped") and not store.notice_sent(DAY, "deadline")
+
+    service.on_identified("A", at(10, 20), 0.7, None)  # the boss comes in later: recorded, not announced
+    assert not [m for m in sent if "Alice" in m]
+    run_until(service, clock, at(11, 5))
+    summary = sent[-1]
+    assert summary.startswith("📋") and "On time: 2 · Late: 0 · Not seen: 0" in summary
+    assert "✅ Everyone was in by 09:12" in summary
+
+
+def test_late_time_message_still_sent_when_someone_is_missing_or_faces_wait(env):
+    service, store, clock, sent = env
+    run_until(service, clock, at(9, 30))
+    for emp in "ABC":
+        service.on_identified(emp, at(9, 10), 0.7, None)
+    service.on_unknown(at(9, 20), "x.jpg", person_vector(20), None, None)  # a visitor, or someone mis-enrolled
+    run_until(service, clock, at(10, 5))
+    deadline = [m for m in sent if m.startswith("⏰")]
+    assert len(deadline) == 1 and "all 3 people arrived on time" in deadline[0] and "1 unidentified" in deadline[0]
+
+
 def test_admin_correction_moves_late_arrival_earlier(env):
     service, store, clock, sent = env
     run_until(service, clock, at(10, 30))
