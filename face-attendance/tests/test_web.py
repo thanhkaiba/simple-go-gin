@@ -260,7 +260,7 @@ def test_first_run_goes_to_setup_and_steps_get_ticked(tmp_path):
     c = client(app)
     resp = c.get("/")
     assert resp.status_code == 302 and resp.headers["Location"].endswith("/setup")
-    page = c.get("/setup").get_data(as_text=True)
+    page = c.get("/setup?step=done").get_data(as_text=True)
     assert "5 steps left" in page and "Camera address" in page
     assert open_count(app) == 5
 
@@ -277,7 +277,7 @@ def test_first_run_goes_to_setup_and_steps_get_ticked(tmp_path):
     assert cfg.web.password == "secret1"
     assert c.get("/setup").status_code == 401  # login now required
     auth = {"Authorization": "Basic " + __import__("base64").b64encode(b"admin:secret1").decode()}
-    assert "All set" in c.get("/setup", headers=auth).get_data(as_text=True)
+    assert "All set" in c.get("/setup?step=done", headers=auth).get_data(as_text=True)
 
 
 def test_setup_can_be_put_off(tmp_path):
@@ -303,3 +303,46 @@ def test_camera_angle_shown_and_relearned(core):
     c.post("/settings/pose-reset")
     assert app.pose.samples == 0
     assert "relearn camera angle" in c.get("/audit").get_data(as_text=True)
+
+
+def test_boss_can_be_exempt_from_late(core):
+    app, clock, _ = core
+    c = client(app)
+    clock.t = at(10, 30)
+    c.post("/employees/C", data={"name": "Carol", "active": "on", "exempt": "on"})
+    assert app.store.employee("C").exempt
+    app.service.on_identified("C", at(10, 20), 0.8, None)
+    page = c.get(f"/?day={DAY}").get_data(as_text=True)
+    assert "Arrived · not counted" in page and "Late 20 min" not in page
+    c.post("/employees/C", data={"name": "Carol", "active": "on"})
+    assert not app.store.employee("C").exempt
+
+
+def test_camera_address_is_checked(core):
+    app, _, _ = core
+    c = client(app)
+    unreachable = c.post("/camera/check", data={"url": "rtsp://127.0.0.1:1/stream"}).get_json()
+    assert unreachable["level"] == "warn" and "Cannot reach 127.0.0.1:1" in unreachable["message"]
+    assert c.post("/camera/check", data={"url": "rtsp:///nohost"}).get_json()["level"] == "error"
+    assert c.post("/camera/check", data={"url": ""}).get_json()["level"] == "error"
+
+
+def test_onboarding_walks_through_camera_hours_and_chat(tmp_path):
+    from attendance.config import Config
+    from attendance.pipeline import App
+
+    cfg = Config(data_dir="data", base_dir=tmp_path)
+    cfg.validate()
+    app = App(cfg)
+    c = client(app)
+    assert c.get("/").headers["Location"].endswith("/setup")
+    assert "Connect the camera" in c.get("/setup").get_data(as_text=True)
+    c.post("/setup/save", data={"camera.url": "rtsp://cam/101", "back": "/setup?step=hours"})
+    assert "Working hours" in c.get("/setup").get_data(as_text=True)
+    c.post("/setup/save", data={"schedule.window_start": "07:30", "schedule.late_after": "08:30",
+                                "schedule.window_end": "10:00", "schedule.days_shown": "1",
+                                "schedule.work_days": ["0", "1", "2", "3", "4", "5"]})
+    assert (cfg.schedule.late_after, cfg.schedule.work_days) == ("08:30", [0, 1, 2, 3, 4, 5])
+    assert "Webhook URL" in c.get("/setup").get_data(as_text=True)
+    c.post("/setup/skip-chat")
+    assert "Almost done" in c.get("/setup").get_data(as_text=True)

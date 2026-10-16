@@ -64,6 +64,7 @@ class Observation:
     crop: Any = None
     person_id: int | None = None  # the person (body) track this face belongs to, if known
     size_ok: bool = True  # big and clearly detected (see vote_for)
+    body: Any = None  # the person below the face, shown on the review page
 
 
 @dataclass
@@ -74,6 +75,7 @@ class Decision:
     score: float | None
     crop: Any
     embedding: np.ndarray
+    body: Any = None
 
 
 @dataclass
@@ -177,7 +179,8 @@ class FaceTracker:
     def _decide(self, t: _Track, person: str, ts: dt.datetime) -> Decision:
         t.decided = person
         self._recent[person] = ts
-        return Decision("identified", t.first_ts, person, t.best_score[person], t.best.crop, t.best.embedding)
+        return Decision("identified", t.first_ts, person, t.best_score[person], t.best.crop, t.best.embedding,
+                        t.best.body)
 
     def _strong_exit(self, t: _Track) -> str | None:
         if len(t.votes) != 1:
@@ -207,7 +210,8 @@ class FaceTracker:
                 waiting.append(t)
             elif not self._is_split(t):
                 person, score = self._guess(t)
-                decisions.append(Decision("unknown", t.first_ts, person, score, t.best.crop, t.best.embedding))
+                decisions.append(Decision("unknown", t.first_ts, person, score, t.best.crop, t.best.embedding,
+                                          t.best.body))
         self._ended = waiting
         return decisions
 

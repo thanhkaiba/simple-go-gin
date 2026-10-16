@@ -10,6 +10,7 @@
       {% if status == 'late' %}<span class="badge late">Late {{ late(a) }} min</span>
       {% elif status == 'on_time' %}<span class="badge ok">On time</span>
       {% elif status == 'on_leave' %}<span class="badge info">{{ note }}</span>
+      {% elif status == 'exempt' %}<span class="badge info" title="Never counted as late or absent">{{ 'Arrived' if a else 'Not here' }} · not counted</span>
       {% elif rep.no_camera_data %}<span class="badge info">No camera data</span>
       {% else %}<span class="badge bad">Not seen</span>{% endif %}
     </td>
@@ -48,7 +49,7 @@
 {% if rep.day == today and rep.workday and not started %}<div class="alert info">The camera starts at {{ rep.window.start.strftime('%H:%M') }}.</div>{% endif %}
 
 <div class="tiles">
-  <button class="tile active" type="button" data-filter="all"><div class="n">{{ rep.total + rep.on_leave|length }}</div><div class="l">Everyone</div></button>
+  <button class="tile active" type="button" data-filter="all"><div class="n">{{ rep.total + rep.on_leave|length + rep.exempt|length }}</div><div class="l">Everyone</div></button>
   <button class="tile late" type="button" data-filter="late"><div class="n">{{ rep.late|length }}</div><div class="l">Late</div></button>
   <button class="tile bad" type="button" data-filter="not_seen"><div class="n">{{ rep.not_seen|length }}</div><div class="l">Not seen</div></button>
   <button class="tile ok" type="button" data-filter="on_time"><div class="n">{{ rep.on_time|length }}</div><div class="l">On time</div></button>
@@ -77,6 +78,7 @@
       {% for id, name in rep.not_seen %}{{ row('not_seen', id, name) }}{% endfor %}
       {% for id, name, kind in rep.on_leave %}{{ row('on_leave', id, name, None, kind) }}{% endfor %}
       {% for a in rep.on_time %}{{ row('on_time', a.employee_id, a.name, a) }}{% endfor %}
+      {% for id, name, a in rep.exempt %}{{ row('exempt', id, name, a) }}{% endfor %}
     </tbody>
   </table>
   <div class="empty-state" id="empty" hidden>Nobody matches.</div>
@@ -92,7 +94,7 @@
     </form>
   </div>
   {% if late_msg.preview %}
-    <p style="background:#f8fafc; border:1px solid var(--line); border-radius:8px; padding:12px; margin:12px 0 6px">{{ late_msg.preview }}</p>
+    <p style="background:var(--soft); border:1px solid var(--line); border-radius:12px; padding:12px; margin:12px 0 6px">{{ late_msg.preview }}</p>
   {% else %}
     <p class="muted" style="margin:12px 0 6px">Nobody was late{{ ' so far' if rep.day == today }} 🎉</p>
   {% endif %}
@@ -119,7 +121,8 @@
     </div>
     <form method="post" id="form-set">
       <strong id="set-label">Arrival time</strong>
-      <div class="form-row"><input type="time" name="time" id="edit-time" required><button class="primary">Save</button></div>
+      <div class="form-row"><input name="time" id="edit-time" class="time24" inputmode="numeric" maxlength="5" placeholder="HH:MM"
+        pattern="([01]\d|2[0-3]):[0-5]\d" autocomplete="off" required><button class="primary">Save</button></div>
       <span class="hint">Use this if the camera missed the person or got the time wrong.</span>
     </form>
     <form method="post" id="form-move">

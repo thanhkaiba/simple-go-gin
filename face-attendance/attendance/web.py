@@ -7,6 +7,7 @@ import hmac
 import io
 import re
 import secrets
+import sys
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -15,10 +16,10 @@ from urllib.parse import urlparse
 from flask import (Flask, Response, abort, flash, jsonify, redirect, render_template, request,
                    send_from_directory, url_for)
 
-from . import leave_api, settings
+from . import __version__, leave_api, settings, updater
 from . import setup as first_setup
 from .service import SOURCES, minutes_late
-from .store import LEAVE_KINDS
+from .store import LEAVE_KINDS, body_photo
 
 if TYPE_CHECKING:
     from .pipeline import App
@@ -87,7 +88,7 @@ def create_app(core: "App") -> Flask:
     @app.context_processor
     def common():
         return {"pending": store.pending_group_count(), "nav": request.endpoint, "SOURCES": SOURCES,
-                "setup_open": first_setup.open_count(core),
+                "setup_open": first_setup.open_count(core), "models_status": core.live.models,
                 "leave_label": lambda kind: LEAVE_KINDS.get(kind, kind), "WEEKDAYS": WEEKDAYS}
 
     def leave_status() -> dict:
@@ -214,6 +215,8 @@ def create_app(core: "App") -> Flask:
             photos = [u.image for u in reversed(members) if u.image][:6]
             groups.append({"id": members[-1].id, "members": members, "latest": members[-1], "photos": photos,
                            "photo_urls": [url_for("media", path=p) for p in photos],
+                           "body": next((body_photo(u.image) for u in reversed(members) if u.image
+                                         and (core.data_dir / body_photo(u.image)).exists()), None),
                            "guess": best.guess_id if best else None, "guess_score": best.guess_score if best else None})
         ignored = [{"id": g[-1].id, "count": len(g), "latest": g[-1],
                     "photo": next((u.image for u in reversed(g) if u.image), None)}
@@ -309,12 +312,12 @@ def create_app(core: "App") -> Flask:
         store.employee(employee_id) or abort(404)
         try:
             store.update_employee(employee_id, request.form.get("name", ""), request.form.get("active") == "on",
-                                  request.form.get("chat_user"))
+                                  request.form.get("chat_user"), request.form.get("exempt") == "on")
         except ValueError as exc:
             return failed(str(exc), "employee", employee_id=employee_id)
         library.reload()
         store.log(service.now(), user(), "edit employee", f"{employee_id} {request.form.get('name')} "
-                  f"active={request.form.get('active') == 'on'}")
+                  f"active={request.form.get('active') == 'on'} exempt={request.form.get('exempt') == 'on'}")
         return done("Saved.", "employee", employee_id=employee_id)
 
     @app.post("/employees/<employee_id>/test-mention")
@@ -494,6 +497,17 @@ def create_app(core: "App") -> Flask:
                        in_window=service.in_window(service.now()),
                        frame_age=round(time.time() - frame_time, 1) if frame_time else None)
 
+    @app.get("/models.json")
+    def models_json():
+        return jsonify(status=live.models)
+
+    @app.post("/camera/check")
+    def camera_check():
+        """Test a camera address typed on a page, before it is saved."""
+        from .camera_check import check
+
+        return jsonify(check(request.form.get("url", "")))
+
     @app.post("/live/area")
     def set_area():
         area = request.form.get("area", "").strip()
@@ -517,7 +531,8 @@ def create_app(core: "App") -> Flask:
     @app.get("/settings")
     def settings_page():
         return render_template("settings.html", s=settings.current(cfg), cfg=cfg, leave=leave_status(),
-                               pose=core.pose.describe())
+                               pose=core.pose.describe(), version=__version__, packaged=getattr(sys, "frozen", False),
+                               update=updater.read_status(core.data_dir))
 
     @app.post("/settings")
     def save_settings():
@@ -545,6 +560,13 @@ def create_app(core: "App") -> Flask:
                   ", ".join(f"{s}.{n}" if s else n for s, f in changes.items() for n in f))
         return done("Settings saved and applied.", "settings_page")
 
+    @app.post("/settings/update-now")
+    def update_now():
+        (core.data_dir / updater.REQUEST_FILE).touch()  # picked up by the launcher within half a minute
+        store.log(service.now(), user(), "check for updates", "")
+        return done("Checking for a new version. If there is one, it is installed and the program restarts "
+                    "by itself in a minute or two.", "settings_page")
+
     @app.post("/settings/pose-reset")
     def reset_pose():
         core.pose.reset()
@@ -566,11 +588,17 @@ def create_app(core: "App") -> Flask:
     # first-run setup ------------------------------------------------------------------
 
     SETUP_FIELDS = {"camera.url": ("camera", "url"), "web.password": ("web", "password"),
-                    "web.public_url": ("web", "public_url"), "google_chat.webhook_url": ("google_chat", "webhook_url")}
+                    "web.public_url": ("web", "public_url"), "google_chat.webhook_url": ("google_chat", "webhook_url"),
+                    "schedule.window_start": ("schedule", "window_start"),
+                    "schedule.late_after": ("schedule", "late_after"), "schedule.window_end": ("schedule", "window_end")}
 
     @app.get("/setup")
     def setup_page():
-        return render_template("setup.html", steps=first_setup.steps(core), cfg=cfg,
+        step = request.args.get("step") or first_setup.wizard_step(core)
+        if step not in first_setup.WIZARD:
+            abort(404)
+        return render_template("setup.html", steps=first_setup.steps(core), cfg=cfg, step=step,
+                               wizard=first_setup.WIZARD, hours_done=store.get(first_setup.HOURS_KEY) == "1",
                                suggested_url=first_setup.lan_address(cfg.web.port))
 
     @app.post("/setup/save")
@@ -580,12 +608,16 @@ def create_app(core: "App") -> Flask:
             value = request.form.get(key)
             if value and value.strip():  # empty fields are left as they are
                 changes.setdefault(section, {})[name] = value.strip()
+        if "schedule.days_shown" in request.form:  # the working hours step (no box ticked = no work days)
+            changes.setdefault("schedule", {})["work_days"] = [int(d) for d in request.form.getlist("schedule.work_days")]
         if not changes:
             return failed("Nothing to save.", "setup_page")
         try:
             settings.save(cfg, store, changes)
         except ValueError as exc:
             return failed(f"Not saved: {exc}", "setup_page")
+        if "schedule" in changes:
+            store.put(first_setup.HOURS_KEY, "1")
         store.log(service.now(), user(), "change settings",
                   ", ".join(f"{s}.{n}" for s, f in changes.items() for n in f))
         return done("Saved.", "setup_page")
@@ -594,10 +626,13 @@ def create_app(core: "App") -> Flask:
     def setup_action(action: str):
         if action == "skip-employees":
             store.put(first_setup.SKIP_EMPLOYEES_KEY, "1")
-            return done("The camera will collect faces; name them on the To review page.", "setup_page")
+            return done("The camera will collect faces; name them on the Review page.", "setup_page")
+        if action == "skip-chat":
+            store.put(first_setup.SKIP_CHAT_KEY, "1")
+            return redirect(url_for("setup_page", step="done"))
         if action == "later":
             store.put(first_setup.DISMISSED_KEY, "1")
-            return done("You can finish the setup any time from the Setup page.", "index")
+            return done("You can finish the setup any time from Settings.", "index")
         if action == "check-camera":
             live.start_preview()
             return redirect(url_for("live_page"))

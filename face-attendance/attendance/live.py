@@ -48,6 +48,7 @@ class FrameHealth:
 class LiveStatus:
     camera_state: str = "off"
     problem: str | None = None  # model or configuration problem shown on the page
+    models: str | None = None  # first-run model download in progress, shown on every page
     fps: float = 0.0
     faces: list[str] = field(default_factory=list)
     people: int = 0  # people followed in the last frame (person tracking)

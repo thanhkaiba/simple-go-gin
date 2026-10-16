@@ -8,7 +8,7 @@ import logging
 import numpy as np
 
 from .person import ByteTracker, PersonDetector, PersonTrack, assign_faces, head_region
-from .recognizer import DetectedFace, crop_face
+from .recognizer import DetectedFace, crop_body, crop_face
 from .tracker import Decision, FaceTracker, Observation, clear_match
 
 log = logging.getLogger(__name__)
@@ -84,7 +84,7 @@ class FrameProcessor:
         decisions = []
         if record:
             observations = [Observation(f.bbox, f.embedding, c, f.quality_ok, f.quality, crop_face(frame, f.bbox), pid,
-                                        f.size_ok) for f, c, pid in matched]
+                                        f.size_ok, crop_body(frame, f.bbox)) for f, c, pid in matched]
             decisions = self.face_tracker.update(observations, ts, followed)
         self.people = people
         return decisions, matched, people

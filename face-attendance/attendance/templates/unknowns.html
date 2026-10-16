@@ -4,8 +4,7 @@
   <div>
     <h1>Faces to review</h1>
     <p class="subtitle">People the camera could not identify. Photos that look like the same person are grouped, so
-      you only name each person once. Click a face to say who it is: confirming records their arrivals and teaches
-      the system their face.</p>
+      you only name each person once. Click a person to say who it is.</p>
   </div>
 </div>
 {% if no_photos %}
@@ -13,7 +12,7 @@
     appears here. Name each person once (or add them as a new employee) and the camera recognises them from then on.</span></div>
 {% endif %}
 {% if groups %}
-<div class="tiles" style="grid-template-columns: repeat(auto-fill, minmax(180px, 1fr))">
+<div class="tiles" style="grid-template-columns: repeat(auto-fill, minmax(220px, 1fr))">
   {% for g in groups %}
   {% set first, last = g.members[0], g.latest %}
   {% set guess = employees.get(g.guess) if g.guess else None %}
@@ -23,14 +22,23 @@
        data-id="{{ g.id }}" data-count="{{ g.members|length }}" data-when="{{ when }}"
        data-guess="{{ g.guess or '' }}" data-guess-name="{{ guess or '' }}"
        data-score="{{ '%.0f'|format(g.guess_score * 100) if guess else '' }}"
+       data-body="{{ url_for('media', path=g.body) if g.body else '' }}"
        data-photos='{{ g.photo_urls|tojson|forceescape }}'
        onclick="openReview(this)" onkeydown="if(event.key==='Enter')openReview(this)">
-    {% if g.photos %}
-      <img src="{{ url_for('media', path=g.photos[0]) }}" alt="" style="width:100%; aspect-ratio: 1; object-fit: cover; display:block">
+    {% if g.body %}
+      <img src="{{ url_for('media', path=g.body) }}" alt="" loading="lazy" style="width:100%; height:300px; object-fit:contain; background:#0f172a; display:block">
+    {% elif g.photos %}
+      <img src="{{ url_for('media', path=g.photos[0]) }}" alt="" loading="lazy" style="width:100%; aspect-ratio: 1; object-fit: cover; display:block">
     {% endif %}
-    <div style="padding:10px; display:grid; gap:6px">
+    {% if g.photos %}
+      {% set thumbs = g.photos if g.body else g.photos[1:] %}
+      {% if thumbs %}<div style="display:flex; gap:4px; padding:4px; background:var(--soft)">
+        {% for p in thumbs[:4] %}<img src="{{ url_for('media', path=p) }}" alt="" loading="lazy" style="flex:1; min-width:0; aspect-ratio:1; object-fit:cover; border-radius:6px; display:block">{% endfor %}
+      </div>{% endif %}
+    {% endif %}
+    <div style="padding:12px; display:grid; gap:8px">
       <div class="small muted">{% if g.members|length > 1 %}<span class="badge info">Seen {{ g.members|length }} times</span> · {% endif %}{{ local(last.ts).strftime('%a %d %b %H:%M') }}</div>
-      {% if guess %}<div class="small">Looks like <strong>{{ guess }}</strong> ({{ '%.0f'|format(g.guess_score * 100) }}%)</div>{% endif %}
+      {% if guess %}<div class="small">Looks like <strong>{{ guess }}</strong> <span class="muted">({{ '%.0f'|format(g.guess_score * 100) }}%)</span></div>{% endif %}
       <button type="button" class="primary btn-sm" style="width:100%; justify-content:center">Who is this?</button>
     </div>
   </div>
@@ -65,12 +73,13 @@
   <div class="dialog-head"><strong>Who is this?</strong><button type="button" class="close btn-sm" onclick="review.close()">✕</button></div>
   <div class="dialog-body">
     <div>
-      <div id="review-photos" style="display:flex; gap:6px; flex-wrap:wrap"></div>
-      <div class="small muted" id="review-when" style="margin-top:6px"></div>
+      <a id="review-body-link" target="_blank" hidden><img id="review-body" alt="" style="width:100%; max-height:320px; object-fit:contain; background:#0f172a; border-radius:12px; display:block"></a>
+      <div id="review-photos" style="display:flex; gap:6px; flex-wrap:wrap; margin-top:6px"></div>
+      <div class="small muted" id="review-when" style="margin-top:8px"></div>
     </div>
     <form method="post" id="form-guess">
       <input type="hidden" name="employee_id" id="guess-id">
-      <button class="primary" style="width:100%; justify-content:center" id="guess-button"></button>
+      <button class="primary" style="width:100%; justify-content:center; padding:10px 16px" id="guess-button"></button>
       <span class="hint" id="guess-hint"></span>
     </form>
     {% if employees %}
@@ -78,7 +87,7 @@
       <strong id="pick-label">Someone else?</strong>
       <div class="form-row" style="flex-wrap:nowrap">
         <select name="employee_id" id="pick-id" required style="flex:1; min-width:0">
-          <option value="">Choose an employee…</option>
+          <option value="">Choose a person…</option>
           {% for id, name in employees.items() %}<option value="{{ id }}">{{ name }}</option>{% endfor %}
         </select>
         <button>Confirm</button>
@@ -89,15 +98,17 @@
     <details id="new-employee"{% if not employees %} open{% endif %}>
       <summary class="small" style="cursor:pointer; color: var(--brand)">+ New employee</summary>
       <form method="post" id="form-new" style="display:grid; gap:6px; margin-top:8px">
-        <input name="id" required placeholder="Employee id" value="{{ next_id }}">
-        <input name="name" required placeholder="Full name">
-        <button class="{{ 'primary' if not employees }}">Add employee &amp; confirm</button>
+        <div class="form-row">
+          <input name="id" required placeholder="Employee id" value="{{ next_id }}" style="width:130px">
+          <input name="name" required placeholder="Full name" style="flex:1 1 160px">
+        </div>
+        <div><button class="{{ 'primary' if not employees }}">Add &amp; confirm</button></div>
       </form>
     </details>
     <form method="post" id="form-skip">
-      <div class="form-row"><button style="width:100%; justify-content:center">Skip · not an employee</button></div>
+      <button style="width:100%; justify-content:center">Skip · not an employee</button>
       <span class="hint">Hidden for the rest of today, including if they pass the camera again; shown again if seen on another day.
-        Just close this window to decide later.</span>
+        Close this window to decide later.</span>
     </form>
   </div>
 </dialog>
@@ -112,11 +123,14 @@
   };
   function openReview(card) {
     const d = card.dataset, url = u => u.replace('/0/', '/' + d.id + '/');
+    const bodyLink = document.getElementById('review-body-link');
+    bodyLink.hidden = !d.body;
+    if (d.body) { bodyLink.href = d.body; document.getElementById('review-body').src = d.body; }
     const photos = document.getElementById('review-photos');
     photos.replaceChildren(...JSON.parse(d.photos).map(src => {
       const a = document.createElement('a'); a.href = src; a.target = '_blank';
       const img = document.createElement('img'); img.src = src; img.alt = '';
-      img.style.cssText = 'width:96px; height:96px; object-fit:cover; border-radius:8px; display:block';
+      img.style.cssText = 'width:84px; height:84px; object-fit:cover; border-radius:10px; display:block';
       a.append(img); return a;
     }));
     document.getElementById('review-when').textContent = d.when + (d.count > 1 ? ' · seen ' + d.count + ' times' : '');
@@ -129,7 +143,7 @@
     const pick = document.getElementById('form-pick');
     if (pick) {
       pick.action = url(urls.assign);
-      document.getElementById('pick-label').textContent = d.guess ? 'Someone else?' : 'Which employee?';
+      document.getElementById('pick-label').textContent = d.guess ? 'Someone else?' : 'Which person?';
       for (const o of document.getElementById('pick-id').options) o.hidden = o.value && o.value === d.guess;
       document.getElementById('pick-id').value = '';
     }
@@ -137,6 +151,7 @@
     document.getElementById('form-skip').action = url(urls.skip);
     review.showModal();
   }
+  review.addEventListener('click', e => { if (e.target === review) review.close(); });
   {% if open_id %}
   const first = document.querySelector('.face-card[data-id="{{ open_id }}"]');
   if (first) openReview(first);

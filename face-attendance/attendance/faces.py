@@ -109,7 +109,7 @@ class FaceLibrary:
                     f"confuse them. Check that it really is {name}.")
             warnings.append(text)
             self._alert(f"⚠️ Look-alike reference photos: {name} and {other_name} ({score:.0%} match). "
-                        f"Check the photos on the Employees page.")
+                        f"Check the photos on the People page.")
         return AddResult(True, f"Photo added for {name}.", warnings)
 
     def learn(self, employee_id: str, vector: np.ndarray, snapshot: str | None, model: str) -> bool:

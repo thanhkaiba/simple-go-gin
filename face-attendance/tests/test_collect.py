@@ -127,3 +127,22 @@ def test_review_page_shows_ignored_today_with_restore(core):
     assert "Ignored for today" in page and "Ignored today (1)" in page
     page = c.post(f"/unknowns/{uid}/restore", follow_redirects=True).get_data(as_text=True)
     assert "Restored" in page and "Ignored today" not in page and app.store.pending_group_count() == 1
+
+
+def test_review_page_shows_the_whole_person(core):
+    from attendance.pipeline import save_crop
+    from attendance.recognizer import crop_body
+    from attendance.tracker import Decision
+
+    frame = np.zeros((500, 1000, 3), dtype=np.uint8)
+    body = crop_body(frame, (450, 100, 500, 160))  # a 50x60 face: 4 face widths, down to the bottom of the picture
+    assert body.shape[:2] == (500 - 40, 200)
+    app, clock, _ = core
+    d = Decision("unknown", at(9, 5), None, None, frame[100:160, 450:500], near(90, 1), body)
+    image = save_crop(app, d, at(9, 5))
+    assert (app.data_dir / image.replace(".jpg", "_body.jpg")).exists()
+    app.service.on_unknown(at(9, 5), image, near(90, 1), None, None)
+    flask_app = create_app(app)
+    flask_app.testing = True
+    page = flask_app.test_client().get("/unknowns").get_data(as_text=True)
+    assert image.replace(".jpg", "_body.jpg") in page and image in page

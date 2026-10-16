@@ -1,4 +1,5 @@
-"""First-run checklist shown on the Setup page: what is configured and what is left to do."""
+"""First-run setup: a short guided flow (camera, working hours, Google Chat), then a checklist of
+what is configured and what is left to do."""
 from __future__ import annotations
 
 import socket
@@ -6,7 +7,22 @@ from dataclasses import dataclass
 
 DISMISSED_KEY = "setup_dismissed"
 SKIP_EMPLOYEES_KEY = "setup_skip_employees"
+HOURS_KEY = "setup_hours_done"
+SKIP_CHAT_KEY = "setup_skip_chat"
 LOCAL_HOSTS = ("localhost", "127.0.0.1", "0.0.0.0")
+WIZARD = ["camera", "hours", "chat", "done"]
+
+
+def wizard_step(core) -> str:
+    """The first step of the guided flow that is not done yet."""
+    cfg, store = core.cfg, core.store
+    if not cfg.camera.url:
+        return "camera"
+    if store.get(HOURS_KEY) != "1":
+        return "hours"
+    if not cfg.google_chat.webhook_url and store.get(SKIP_CHAT_KEY) != "1":
+        return "chat"
+    return "done"
 
 
 @dataclass
@@ -52,7 +68,7 @@ def steps(core) -> list[Step]:
         Step("chat", "Google Chat", bool(cfg.google_chat.webhook_url), True),
         Step("employees", "Employees", employees > 0 or skip_employees, True,
              f"{employees} employees, {with_photos} with photos." if employees else
-             ("The camera collects faces; name them on the To review page." if skip_employees else "")),
+             ("The camera collects faces; name them on the Review page." if skip_employees else "")),
         Step("area", "Detection area", bool(cfg.camera.area), False),
         Step("mentions", "@mentions in Google Chat", employees > 0 and with_chat == employees, False,
              f"{with_chat}/{employees} employees have a Google Chat ID." if employees else ""),
