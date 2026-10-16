@@ -16,6 +16,7 @@ import shutil
 import sys
 import tarfile
 import time
+import urllib.error
 import urllib.request
 import zipfile
 from pathlib import Path
@@ -58,8 +59,13 @@ def latest_release(repo: str = REPO) -> tuple[str, str] | None:
     """(version, download URL) of the newest release that has a package for this computer."""
     req = urllib.request.Request(f"https://api.github.com/repos/{repo}/releases/latest",
                                  headers={"Accept": "application/vnd.github+json", "User-Agent": "FaceAttendance"})
-    with urllib.request.urlopen(req, timeout=30) as resp:
-        release = json.load(resp)
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            release = json.load(resp)
+    except urllib.error.HTTPError as exc:
+        if exc.code == 404:  # no release published yet
+            return None
+        raise
     for asset in release.get("assets", []):
         if asset["name"] == asset_name():
             return release["tag_name"].lstrip("v"), asset["browser_download_url"]
