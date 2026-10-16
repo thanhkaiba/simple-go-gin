@@ -133,4 +133,4 @@ It puts back the newest database copy (`--snapshot 2026-10-01` picks an older on
 
 ## Publishing a release
 
-Change `__version__` in `attendance/__init__.py` if you like, then push a tag (`git tag v1.2.0 && git push origin v1.2.0`). GitHub Actions (`.github/workflows/build.yml`) builds and tests the packages on Windows, macOS and Linux and publishes the release; installed copies with automatic updates on pick it up within hours. Build one locally with `pip install . pyinstaller certifi && pyinstaller packaging/face-attendance.spec`.
+Change `__version__` in `attendance/__init__.py` if you like, then push a tag (`git tag v1.2.0 && git push origin v1.2.0`). GitHub Actions (`.github/workflows/build.yml`) builds and tests the packages on Windows, macOS and Linux and publishes the release. Without git at hand: on GitHub, *Actions → Build packages → Run workflow*, pick the branch and type the version in *release*; that builds, creates the tag and publishes. Either way, installed copies with automatic updates on pick it up within hours. Build one locally with `pip install . pyinstaller certifi && pyinstaller packaging/face-attendance.spec`.

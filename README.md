@@ -65,4 +65,4 @@ pip install -r requirements-dev.txt
 python -m pytest          # no models or camera needed
 ```
 
-New release: push a tag (`git tag v1.2.0 && git push origin v1.2.0`); GitHub Actions builds and publishes the installers.
+New release: push a tag (`git tag v1.2.0 && git push origin v1.2.0`), or on GitHub *Actions → Build packages → Run workflow* with the version in *release*; GitHub Actions builds and publishes the installers.
