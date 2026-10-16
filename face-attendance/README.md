@@ -32,7 +32,7 @@ Times are set on the Settings page; defaults shown.
 
 **Google Chat messages.** All of a day's messages go in one thread.
 
-- **10:00:** everyone not seen yet (each person @mentioned), plus who is on leave and who has no reference photos.
+- **10:00:** everyone not seen yet (each person @mentioned), plus who is on leave and who has no reference photos. When everyone expected is already in (people on leave and people not counted as late aside) and nothing waits for review, this message is skipped; the summary then says "Everyone was in by 09:42".
 - **Late arrival:** as it happens, with an @mention.
 - **Daily late message** when the camera stops (11:00 by default), as its own message: "Morning, coming late today: @Jennie Luu (10:15), and @Steven Hoang (10:32)". The wording can be changed in Settings; it can also be sent earlier from the Today page after checking it. Sending it for another day than today puts that day in front of the message.
 - **Unidentified faces:** batched every 5 minutes at most, as one line with a single *Say who it is* link; it opens the review window for the first face.
@@ -161,7 +161,9 @@ Then open **http://localhost:8000**, or `http://<computer IP>:8000` from another
 
 The menu at the top has everything:
 
-- **Today:** everyone's status for the day.
+The page follows the computer's light or dark theme; the moon/sun button at the top switches it. On a phone the menu sits at the bottom of the screen.
+
+- **Today:** everyone's status for the day. A green banner says when everyone is in and whether the 10:00 message was needed.
   - **Tiles** (Late, Not seen, On time, On leave) show the counts. Click one to show only those people; type in the search box to find someone.
   - **‹ ›** move to the previous or next day; the date box jumps to any day.
   - The page refreshes itself every minute while it shows today.

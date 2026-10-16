@@ -18,6 +18,7 @@ from flask import (Flask, Response, abort, flash, jsonify, redirect, render_temp
 
 from . import __version__, leave_api, settings, updater
 from . import setup as first_setup
+from .icons import icon
 from .service import SOURCES, minutes_late
 from .store import LEAVE_KINDS, body_photo
 
@@ -66,6 +67,10 @@ def create_app(core: "App") -> Flask:
         secret = secrets.token_hex(32)
         store.put("web_secret", secret)
     app.secret_key = secret
+    app.jinja_env.globals["icon"] = icon
+    # Browsers keep the stylesheet and script until they change.
+    static_dir = Path(app.static_folder or "")
+    app.jinja_env.globals["asset_version"] = str(int(max((f.stat().st_mtime for f in static_dir.glob("*")), default=0)))
 
     def user() -> str:
         auth = request.authorization

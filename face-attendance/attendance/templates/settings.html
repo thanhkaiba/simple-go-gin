@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% set title = 'Settings' %}
 {% macro field(section, name, label, help='', type='text', step='', cls='') %}
   {% set key = section ~ '.' ~ name if section else name %}
   <label class="field {{ cls }}">{{ label }}
@@ -13,8 +14,8 @@
     {% if help %}<span class="hint">{{ help }}</span>{% endif %}
   </label>
 {% endmacro %}
-{% macro check(section, name, label) %}
-  <label class="check"><input type="checkbox" name="{{ section }}.{{ name }}" {{ 'checked' if s[section][name] }}> {{ label }}</label>
+{% macro check(section, name, label, help='') %}
+  <label class="switch"><input type="checkbox" name="{{ section }}.{{ name }}" {{ 'checked' if s[section][name] }}><span>{{ label }}{% if help %}<span class="hint">{{ help }}</span>{% endif %}</span></label>
 {% endmacro %}
 {% block body %}
 <div class="page-head">
@@ -55,8 +56,9 @@
     <div class="days">
       {% for d in range(7) %}<label><input type="checkbox" name="schedule.work_days" value="{{ d }}" {{ 'checked' if d in s.schedule.work_days }}><span>{{ WEEKDAYS[d] }}</span></label>{% endfor %}
     </div>
-    <p class="hint" style="margin-bottom:0">Holidays, make-up work days and leave come from the HR system.
-      People who arrive before the camera starts are only counted if they pass it again later.</p>
+    <p class="hint" style="margin:14px 0 0">Holidays, make-up work days and leave come from the HR system.
+      People who arrive before the camera starts are only counted if they pass it again later.
+      When everyone is in before the late time, no list is posted at that time.</p>
   </section>
 
   <section class="card tab" id="notify">
@@ -64,7 +66,7 @@
     <div class="form-row">
       <label class="field grow">Webhook URL<input name="google_chat.webhook_url" value="{{ s.google_chat.webhook_url }}" placeholder="https://chat.googleapis.com/v1/spaces/…">
         <span class="hint">In the space: space name → Apps &amp; integrations → Webhooks → Add webhook</span></label>
-      <button formaction="{{ url_for('test_chat') }}">Send test message</button>
+      <button formaction="{{ url_for('test_chat') }}">{{ icon('send') }}Send test message</button>
     </div>
     <div class="stack">
       {{ check('google_chat', 'mention_people', '@mention people in late and not-seen alerts') }}
@@ -135,8 +137,8 @@
       {% if update.error %}<span style="color:var(--bad)">{{ update.error }}</span>{% endif %}</p>
     {% if packaged %}
     <div class="form-row" style="align-items:center">
-      {{ check('updates', 'enabled', 'Install new versions automatically (checked every few hours, installed outside camera hours)') }}
-      <button class="btn-sm" formaction="{{ url_for('update_now') }}" formnovalidate>Check now</button>
+      {{ check('updates', 'enabled', 'Install new versions automatically', 'Checked every few hours, installed outside camera hours') }}
+      <button class="btn-sm" formaction="{{ url_for('update_now') }}" formnovalidate>{{ icon('refresh') }}Check now</button>
     </div>
     {% else %}
     <input type="hidden" name="updates.enabled" value="{{ 'on' if s.updates.enabled }}">
@@ -152,11 +154,11 @@
         placeholder="{{ 'saved · leave empty to keep' if s.leave_api.token else 'none' }}"></label>
       {{ field('leave_api', 'refresh_minutes', 'Refresh every (min)', type='number') }}
     </div>
-    <div class="form-row" style="margin-top:14px; justify-content:space-between; align-items:center">
+    <div class="row between" style="margin-top:14px">
       <span class="hint">{% if leave.enabled %}Last update:
         {% if leave.at %}{{ leave.at.strftime('%d %b %H:%M') }} · {% if leave.ok %}<span class="badge ok">OK</span>{% else %}<span class="badge bad">Failed</span>{% endif %} {{ leave.message }}{% else %}not yet{% endif %}
         {% else %}Not connected. The expected API format is described in the README.{% endif %}</span>
-      {% if leave.enabled %}<button formaction="{{ url_for('leave_sync') }}">↻ Load now</button>{% endif %}
+      {% if leave.enabled %}<button formaction="{{ url_for('leave_sync') }}">{{ icon('refresh') }}Load now</button>{% endif %}
     </div>
   </section>
 
@@ -168,77 +170,56 @@
       {{ field('recognition', 'accept_score', 'Match threshold', 'Higher = fewer wrong matches, more faces to review', type='number', step='0.01') }}
       {{ field('recognition', 'votes_required', 'Frames that must agree', type='number') }}
     </div>
-    <details style="margin-top:16px">
-      <summary class="muted" style="cursor:pointer">Advanced</summary>
-      <div class="form-row" style="margin-top:12px">
-        {{ field('recognition', 'min_margin', 'Margin over 2nd best', type='number', step='0.01') }}
-        {{ field('recognition', 'unknown_min_frames', 'Frames before "to review"', type='number') }}
-        {{ field('recognition', 'min_face_px', 'Min face size (px)', type='number') }}
-        {{ field('recognition', 'min_det_score', 'Min detection score', type='number', step='0.01') }}
-        {{ field('recognition', 'min_sharpness', 'Min sharpness', type='number', step='1') }}
-        {{ field('recognition', 'max_yaw', 'Max head turn (°)', type='number', step='1') }}
-        {{ field('recognition', 'max_pitch', 'Max head tilt (°)', type='number', step='1') }}
-      </div>
-      <div style="margin-top:10px">{{ check('recognition', 'auto_pose', 'Learn the camera angle (turn and tilt are measured from how this camera usually sees faces)') }}
-        <span class="hint">Now: {{ pose }}. After moving the camera:
-          <button class="btn-sm" formaction="{{ url_for('reset_pose') }}" formnovalidate>Learn again</button></span>
-      </div>
-      <h3 style="margin:18px 0 4px">Review &amp; learning</h3>
-      <p class="hint" style="margin-top:0">Faces named on the review page are always learned as reference photos.</p>
-      <div class="stack" style="margin:10px 0">{{ check('recognition', 'learn_corrections', 'Also learn a face moved to the right person on the Today page (the faces the camera found hardest)') }}</div>
-      <div class="form-row">
-        {{ field('recognition', 'learn_per_group', 'Photos learned per confirmed group', 'Spread over the times the person was seen', type='number') }}
-        {{ field('recognition', 'group_days', 'Group faces seen within (days)', 'Look-alike unknown faces this recent are shown as one person', type='number') }}
-        {{ field('recognition', 'seen_again_score', 'Already-seen score', 'An unclear face this similar to someone checked in today is taken to be them and not sent for review. 0 = always review', type='number', step='0.01') }}
+    <details class="inline" style="margin-top:16px">
+      <summary>Advanced</summary>
+      <div class="stack" style="gap:16px">
+        <div class="form-row">
+          {{ field('recognition', 'min_margin', 'Margin over 2nd best', type='number', step='0.01') }}
+          {{ field('recognition', 'unknown_min_frames', 'Frames before "to review"', type='number') }}
+          {{ field('recognition', 'min_face_px', 'Min face size (px)', type='number') }}
+          {{ field('recognition', 'min_det_score', 'Min detection score', type='number', step='0.01') }}
+          {{ field('recognition', 'min_sharpness', 'Min sharpness', type='number', step='1') }}
+          {{ field('recognition', 'max_yaw', 'Max head turn (°)', type='number', step='1') }}
+          {{ field('recognition', 'max_pitch', 'Max head tilt (°)', type='number', step='1') }}
+        </div>
+        <div>{{ check('recognition', 'auto_pose', 'Learn the camera angle', 'Turn and tilt are measured from how this camera usually sees faces. Now: ' ~ pose ~ '.') }}
+          <div style="margin:8px 0 0 48px"><button class="btn-sm" formaction="{{ url_for('reset_pose') }}" formnovalidate>{{ icon('refresh') }}Learn again</button> <span class="hint">after moving the camera</span></div>
+        </div>
+        <div>
+          <h3 style="margin-bottom:4px">Review &amp; learning</h3>
+          <p class="hint">Faces named on the review page are always learned as reference photos.</p>
+          {{ check('recognition', 'learn_corrections', 'Also learn a face moved to the right person on the Today page', 'These are the faces the camera found hardest.') }}
+          <div class="form-row" style="margin-top:14px">
+            {{ field('recognition', 'learn_per_group', 'Photos learned per confirmed group', 'Spread over the times the person was seen', type='number') }}
+            {{ field('recognition', 'group_days', 'Group faces seen within (days)', 'Look-alike unknown faces this recent are shown as one person', type='number') }}
+            {{ field('recognition', 'seen_again_score', 'Already-seen score', 'An unclear face this similar to someone checked in today is taken to be them and not sent for review. 0 = always review', type='number', step='0.01') }}
+          </div>
+        </div>
       </div>
     </details>
   </section>
 
   <div class="savebar">
     <span class="hint" id="dirty">All changes saved</span>
-    <button class="primary" style="padding:10px 22px">Save settings</button>
+    <button class="primary btn-lg">Save settings</button>
   </div>
 </form>
-<style>
-  .setup-banner { display: flex; align-items: center; gap: 14px; color: var(--text); background: linear-gradient(120deg, #f1efff, #fff 60%); border-color: #dcd8fd; }
-  .setup-banner:hover { text-decoration: none; border-color: #c4bdfb; }
-  .setup-ring { width: 38px; height: 38px; border-radius: 50%; display: grid; place-items: center; font-weight: 700; color: var(--brand);
-                background: #fff; box-shadow: inset 0 0 0 3px #dcd8fd; flex: none; }
-  .tab { display: none; } .tab.shown { display: block; }
-  .tab hr { border: 0; border-top: 1px solid var(--line); margin: 24px 0 20px; }
-  .stack { display: grid; gap: 10px; margin: 16px 0; }
-  .timeline { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 10px 14px; }
-  .timeline .arrow { color: #c9c9c2; font-size: 1.3em; padding-top: 34px; }
-  .timeline input.time24 { font-size: 1.35em; font-weight: 600; width: 116px; padding: 10px 12px; }
-  .days { display: flex; flex-wrap: wrap; gap: 8px; }
-  .days label { position: relative; }
-  .days input { position: absolute; opacity: 0; pointer-events: none; }
-  .days span { display: grid; place-items: center; width: 52px; height: 40px; border-radius: 10px; border: 1px solid var(--line); cursor: pointer;
-               font-weight: 500; color: var(--muted); background: var(--card); transition: all .15s; user-select: none; }
-  .days input:checked + span { background: var(--ink); border-color: var(--ink); color: #fff; }
-  .days input:focus-visible + span { box-shadow: 0 0 0 4px var(--ring); }
-  .savebar { position: sticky; bottom: 16px; margin-top: 8px; background: rgba(255,255,255,.92); backdrop-filter: blur(12px); border: 1px solid var(--line);
-             border-radius: 14px; box-shadow: 0 8px 30px rgba(23,24,28,.08); padding: 10px 10px 10px 18px; display: flex; gap: 12px;
-             align-items: center; justify-content: space-between; }
-  .savebar.dirty { border-color: var(--ink); }
-  .savebar.dirty #dirty { color: var(--text); font-weight: 500; }
-  @media (max-width: 760px) { .savebar { bottom: 92px; } .timeline .arrow { display: none; } }
-</style>
 {% endblock %}
 {% block scripts %}
 <script>
   // One section at a time; the address keeps the open tab (#hr etc.), so links and reloads land on it.
   const ALIAS = {chat: 'notify', late: 'notify', access: 'admin'};
-  function showTab(name) {
+  function showTab(name, remember = true) {
     name = ALIAS[name] || name;
     if (!document.getElementById(name)?.classList.contains('tab')) name = 'hours';
     document.querySelectorAll('.tab').forEach(t => t.classList.toggle('shown', t.id === name));
     document.querySelectorAll('#tabs [data-tab]').forEach(b => b.classList.toggle('on', b.dataset.tab === name));
     document.querySelector('#settings [name=back]').value = location.pathname + '#' + name;
-    history.replaceState(null, '', '#' + name);
+    // Not while the page is still loading: the browser would then scroll to the section.
+    if (remember) history.replaceState(null, '', '#' + name);
   }
   document.querySelectorAll('#tabs [data-tab]').forEach(b => b.addEventListener('click', () => showTab(b.dataset.tab)));
-  showTab(location.hash.slice(1));
+  showTab(location.hash.slice(1), false);
 
   // A field with a wrong value may sit on a hidden tab: open that tab so the browser can point at it.
   document.getElementById('settings').addEventListener('invalid', e => showTab(e.target.closest('.tab').id), true);

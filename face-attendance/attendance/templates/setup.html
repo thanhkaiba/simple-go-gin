@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% set title = 'Setup' %}
 {% macro time24(name, label, value, help='') %}
   <label class="field">{{ label }}
     <input name="schedule.{{ name }}" value="{{ value }}" class="time24" inputmode="numeric" maxlength="5" placeholder="HH:MM"
@@ -40,7 +41,7 @@
       </details>
       <div class="wactions">
         <span></span>
-        <button class="primary">Continue →</button>
+        <button class="primary">Continue {{ icon('chevron-right') }}</button>
       </div>
     </form>
   </div>
@@ -66,8 +67,8 @@
         </div>
       </div>
       <div class="wactions">
-        <a class="btn" href="{{ url_for('setup_page', step='camera') }}">← Back</a>
-        <button class="primary">Continue →</button>
+        <a class="btn" href="{{ url_for('setup_page', step='camera') }}">{{ icon('chevron-left') }}Back</a>
+        <button class="primary">Continue {{ icon('chevron-right') }}</button>
       </div>
     </form>
   </div>
@@ -81,13 +82,13 @@
         <input name="google_chat.webhook_url" value="{{ cfg.google_chat.webhook_url }}" placeholder="https://chat.googleapis.com/v1/spaces/…" required autocomplete="off">
         <span class="hint">In Google Chat: open the space → its name → Apps &amp; integrations → Webhooks → Add webhook → copy the URL.
           Needs Google Workspace; if Webhooks is missing, ask your Workspace admin to allow incoming webhooks.</span></label>
-      <div><button formaction="{{ url_for('test_chat') }}" name="back" value="{{ url_for('setup_page', step='chat') }}">Send test message</button></div>
+      <div><button formaction="{{ url_for('test_chat') }}" name="back" value="{{ url_for('setup_page', step='chat') }}">{{ icon('send') }}Send test message</button></div>
       <input type="hidden" name="back" value="{{ url_for('setup_page', step='done') }}">
       <div class="wactions">
-        <a class="btn" href="{{ url_for('setup_page', step='hours') }}">← Back</a>
+        <a class="btn" href="{{ url_for('setup_page', step='hours') }}">{{ icon('chevron-left') }}Back</a>
         <span class="btn-group">
           <button formaction="{{ url_for('setup_action', action='skip-chat') }}" formnovalidate>Skip for now</button>
-          <button class="primary">Continue →</button>
+          <button class="primary">Continue {{ icon('chevron-right') }}</button>
         </span>
       </div>
     </form>
@@ -104,7 +105,7 @@
         <div class="ci {{ 'done' if st.done }}">
           <span class="ci-dot">{{ '✓' if st.done else '' }}</span>
           <div class="ci-body">
-            <strong>{{ st.title }}</strong>{% if optional %} <span class="badge info" style="font-size:11px">optional</span>{% endif %}
+            <strong>{{ st.title }}</strong>{% if optional %} <span class="badge info plain" style="font-size:11px">optional</span>{% endif %}
             {% if st.detail %}<div class="hint">{{ st.detail }}</div>{% endif %}
             {{ caller() }}
           </div>
@@ -145,47 +146,10 @@
     </div>
 
     <div class="wactions">
-      {% if left %}<form method="post" action="{{ url_for('setup_action', action='later') }}"><button>Finish later</button></form>{% else %}<span></span>{% endif %}
-      <a class="btn primary" href="{{ url_for('index') }}">Go to Today →</a>
+      {% if left %}<form method="post" action="{{ url_for('setup_action', action='later') }}"><button class="ghost">Finish later</button></form>{% else %}<span></span>{% endif %}
+      <a class="btn primary" href="{{ url_for('index') }}">Go to Today {{ icon('chevron-right') }}</a>
     </div>
   </div>
   {% endif %}
 </div>
-<style>
-  .wizard { max-width: 680px; margin: 0 auto; }
-  .wizard .card { padding: 28px; }
-  .wizard h1 { margin-bottom: 4px; }
-  .wstack { display: grid; gap: 18px; margin-top: 22px; }
-  .wactions { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-top: 8px; flex-wrap: wrap; }
-  .stepper { list-style: none; display: flex; gap: 6px; padding: 0; margin: 0 0 18px; flex-wrap: wrap; }
-  .stepper li { flex: 1 1 120px; }
-  .stepper a { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 12px; color: var(--muted); font-weight: 500; font-size: .92em; }
-  .stepper a:hover { text-decoration: none; background: #ebebe6; }
-  .stepper .dot { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; font-size: .82em; font-weight: 700;
-                  background: var(--card); border: 1px solid var(--line); flex: none; }
-  .stepper li.on a { color: var(--text); background: var(--card); box-shadow: 0 1px 3px rgba(23,24,28,.1); }
-  .stepper li.on .dot { background: var(--ink); border-color: var(--ink); color: #fff; }
-  .stepper li.done .dot { background: var(--ok); border-color: var(--ok); color: #fff; }
-  details.help { background: var(--soft); border: 1px solid var(--line); border-radius: 12px; padding: 10px 14px; font-size: .92em; }
-  details.help summary { cursor: pointer; font-weight: 500; }
-  details.help p { margin: 8px 0 0; }
-  .timeline { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 10px 14px; }
-  .timeline .arrow { color: #c9c9c2; font-size: 1.3em; padding-top: 34px; }
-  .timeline input.time24 { font-size: 1.35em; font-weight: 600; width: 116px; padding: 10px 12px; }
-  .days { display: flex; flex-wrap: wrap; gap: 8px; }
-  .days label { position: relative; }
-  .days input { position: absolute; opacity: 0; pointer-events: none; }
-  .days span { display: grid; place-items: center; width: 52px; height: 40px; border-radius: 10px; border: 1px solid var(--line); cursor: pointer;
-               font-weight: 500; color: var(--muted); background: var(--card); transition: all .15s; user-select: none; }
-  .days input:checked + span { background: var(--ink); border-color: var(--ink); color: #fff; }
-  .checklist { display: grid; gap: 2px; margin: 22px 0 18px; }
-  .ci { display: flex; gap: 12px; padding: 12px 4px; border-bottom: 1px solid var(--line); }
-  .ci:last-child { border-bottom: 0; }
-  .ci-dot { width: 22px; height: 22px; border-radius: 50%; border: 2px solid #d4d4ce; flex: none; display: grid; place-items: center;
-            font-size: .75em; font-weight: 700; color: #fff; margin-top: 1px; }
-  .ci.done .ci-dot { background: var(--ok); border-color: var(--ok); }
-  .ci-body { flex: 1; min-width: 0; }
-  .ci.done strong { color: var(--muted); font-weight: 500; }
-  @media (max-width: 760px) { .timeline .arrow { display: none; } .wizard .card { padding: 20px; } }
-</style>
 {% endblock %}

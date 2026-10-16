@@ -1,69 +1,74 @@
 {% extends "base.html" %}
+{% set title = 'People' %}
 {% block body %}
 <div class="page-head">
   <div>
     <h1>People</h1>
     <p class="subtitle">{{ people|selectattr('active')|list|length }} active · each person needs 5–10 photos to be recognised reliably</p>
   </div>
-  <div class="btn-group">
-    <input type="search" id="search" placeholder="Search by name or id…">
-    <button class="primary" type="button" onclick="document.getElementById('add').open = true; document.getElementById('new-id').focus()">+ Add employee</button>
+  <div class="actions">
+    <div class="search" style="width:260px"><input type="search" id="search" placeholder="Search by name or id…" aria-label="Search"></div>
+    <button class="primary" type="button" onclick="document.getElementById('add').showModal(); document.getElementById('new-id').focus()">{{ icon('plus') }}Add employee</button>
   </div>
 </div>
 
 {% if people and not counts %}
-  <div class="alert info"><span>💡 <strong>No photos yet?</strong> You can upload photos for each person, or simply let the
-    camera run: everyone it sees appears under <a href="{{ url_for('unknowns') }}">To review</a>, where you name them once.</span></div>
+  <div class="alert info"><span class="ico">{{ icon('sparkles') }}</span><span><strong>No photos yet?</strong> You can upload photos for each person, or simply let the
+    camera run: everyone it sees appears under <a href="{{ url_for('unknowns') }}">Review</a>, where you name them once.</span></div>
 {% endif %}
 {% for p in look_alikes %}
-  <div class="alert warn">⚠️ <span><a href="{{ url_for('employee', employee_id=p.a) }}">{{ names.get(p.a, p.a) }}</a> and
+  <div class="alert warn"><span class="ico">{{ icon('alert') }}</span><span><a href="{{ url_for('employee', employee_id=p.a) }}">{{ names.get(p.a, p.a) }}</a> and
     <a href="{{ url_for('employee', employee_id=p.b) }}">{{ names.get(p.b, p.b) }}</a> have reference photos that look
     alike ({{ '%.0f'|format(p.score * 100) }}% match), so the camera may confuse them. Check that no photo is in the wrong
     person's list and add clearer photos of both.</span></div>
 {% endfor %}
 
-<details class="panel" id="add">
-  <summary>Add employees</summary>
-  <div>
-    <form method="post" action="{{ url_for('add_employee') }}" class="form-row">
-      <label class="field">Employee id<input name="id" id="new-id" required placeholder="NV001"></label>
-      <label class="field grow">Full name<input name="name" required placeholder="Nguyen Van An"></label>
-      <button class="primary">Add</button>
-    </form>
-    <form method="post" action="{{ url_for('import_employees') }}" enctype="multipart/form-data" class="form-row" style="margin-top:16px">
-      <label class="field grow">Or import many at once from a CSV file (columns: id,name)
-        <input type="file" name="file" accept=".csv,text/csv" required>
-        <span class="hint">Add a chat_user column with Google Chat user IDs to enable @mentions.</span></label>
-      <button>Import</button>
-    </form>
-  </div>
-</details>
-
 <div class="table-wrap">
   <table id="people">
-    <thead><tr><th style="width:60px"></th><th>Employee</th><th>Photos</th><th class="hide-sm">Google Chat</th><th>Status</th><th></th></tr></thead>
+    <thead><tr><th style="width:60px"></th><th>Person</th><th>Photos</th><th class="hide-sm">Google Chat</th><th>Status</th><th></th></tr></thead>
     <tbody>
     {% for p in people %}
       {% set n = counts.get(p.id, 0) %}
-      <tr data-name="{{ p.name|lower }} {{ p.id|lower }}" onclick="location.href='{{ url_for('employee', employee_id=p.id) }}'" style="cursor:pointer">
-        <td>{% if thumbs.get(p.id) %}<img class="avatar" src="{{ url_for('media', path=thumbs[p.id]) }}" alt="">{% else %}<span class="avatar empty">{{ p.name[:1] }}</span>{% endif %}</td>
-        <td><strong>{{ p.name }}</strong><div class="small muted">{{ p.id }}</div></td>
+      <tr class="link" data-name="{{ p.name|lower }} {{ p.id|lower }}" onclick="location.href='{{ url_for('employee', employee_id=p.id) }}'">
+        <td>{% if thumbs.get(p.id) %}<img class="avatar" src="{{ url_for('media', path=thumbs[p.id]) }}" alt="" loading="lazy">{% else %}<span class="avatar empty">{{ p.name[:1] }}</span>{% endif %}</td>
+        <td><div class="cell-main">{{ p.name }}</div><div class="cell-sub">{{ p.id }}</div></td>
         <td>{% if n == 0 %}<span class="badge bad">No photos</span>
             {% elif n < 5 %}<span class="badge late">{{ n }} photos · add more</span>
             {% else %}<span class="badge ok">{{ n }} photos</span>{% endif %}</td>
-        <td class="hide-sm">{% if p.chat_user %}<span class="badge ok">@ mention</span>{% else %}<span class="small muted">no ID</span>{% endif %}</td>
+        <td class="hide-sm">{% if p.chat_user %}<span class="badge ok plain">{{ icon('at') }}mention</span>{% else %}<span class="small muted">no ID</span>{% endif %}</td>
         <td>{% if not p.active %}<span class="badge info">Not tracked</span>
             {% elif on_leave.get(p.id) %}<span class="badge info">{{ leave_label(on_leave[p.id]) }} today</span>
             {% elif p.exempt %}<span class="badge info">Not counted as late</span>
             {% else %}<span class="badge ok">Active</span>{% endif %}</td>
-        <td class="num"><a class="btn btn-sm" href="{{ url_for('employee', employee_id=p.id) }}">Open</a></td>
+        <td class="num"><a class="btn btn-sm ghost" href="{{ url_for('employee', employee_id=p.id) }}">Open {{ icon('chevron-right') }}</a></td>
       </tr>
     {% endfor %}
     </tbody>
   </table>
-  {% if not people %}<div class="empty-state">No employees yet. Click <strong>+ Add employee</strong> to start.</div>{% endif %}
-  <div class="empty-state" id="empty" hidden>Nobody matches.</div>
+  {% if not people %}<div class="empty-state"><span class="ico">{{ icon('employees') }}</span><strong>No people yet.</strong><span>Click <strong>Add employee</strong>, import a CSV, or let the camera collect faces.</span></div>{% endif %}
+  <div class="empty-state" id="empty" hidden><span class="ico">{{ icon('search') }}</span>Nobody matches.</div>
 </div>
+
+<dialog id="add">
+  <div class="dialog-head"><strong>Add employees</strong><button type="button" class="close" data-close aria-label="Close">{{ icon('close') }}</button></div>
+  <div class="dialog-body">
+    <form method="post" action="{{ url_for('add_employee') }}">
+      <strong>One person</strong>
+      <div class="form-row">
+        <label class="field" style="width:130px">Employee id<input name="id" id="new-id" required placeholder="NV001"></label>
+        <label class="field grow">Full name<input name="name" required placeholder="Nguyen Van An"></label>
+      </div>
+      <div><button class="primary">{{ icon('plus') }}Add &amp; open</button></div>
+    </form>
+    <div class="divider" style="margin:0"></div>
+    <form method="post" action="{{ url_for('import_employees') }}" enctype="multipart/form-data">
+      <strong>Many at once, from a CSV file</strong>
+      <label class="field">Columns <code>id,name</code>; optional <code>chat_user</code> (Google Chat ID for @mentions) and <code>boss</code> (1 = never counted late)
+        <input type="file" name="file" accept=".csv,text/csv" required></label>
+      <div><button>{{ icon('upload') }}Import</button></div>
+    </form>
+  </div>
+</dialog>
 {% endblock %}
 {% block scripts %}
 <script>

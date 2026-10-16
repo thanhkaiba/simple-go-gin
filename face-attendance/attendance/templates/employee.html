@@ -1,47 +1,52 @@
 {% extends "base.html" %}
+{% set title = person.name %}
 {% block body %}
-<p style="margin:0 0 8px"><a href="{{ url_for('employees') }}">← All employees</a></p>
+<div class="crumbs"><a href="{{ url_for('employees') }}">People</a> {{ icon('chevron-right') }} <span>{{ person.name }}</span></div>
 <div class="page-head">
-  <div>
-    <h1>{{ person.name }}</h1>
-    <p class="subtitle">{{ person.id }} ·
-      {% if not person.active %}<span class="badge info">Not tracked</span>
-      {% elif refs|length == 0 %}<span class="badge bad">Cannot be recognised yet</span>
-      {% elif refs|length < 5 %}<span class="badge late">{{ refs|length }} photos · add more</span>
-      {% else %}<span class="badge ok">Ready · {{ refs|length }} photos</span>{% endif %}
-      {% if person.exempt %}<span class="badge info">Never counted as late</span>{% endif %}</p>
+  <div class="row" style="gap:14px; align-items:center">
+    {% set thumb = (refs|selectattr('image')|first) %}
+    {% if thumb %}<img class="avatar lg" src="{{ url_for('media', path=thumb.image) }}" alt="">{% else %}<span class="avatar lg empty">{{ person.name[:1] }}</span>{% endif %}
+    <div>
+      <h1>{{ person.name }}</h1>
+      <p class="subtitle row" style="gap:8px"><span class="tnum">{{ person.id }}</span> ·
+        {% if not person.active %}<span class="badge info">Not tracked</span>
+        {% elif refs|length == 0 %}<span class="badge bad">Cannot be recognised yet</span>
+        {% elif refs|length < 5 %}<span class="badge late">{{ refs|length }} photos · add more</span>
+        {% else %}<span class="badge ok">Ready · {{ refs|length }} photos</span>{% endif %}
+        {% if person.exempt %}<span class="badge brand plain">{{ icon('crown') }}Never counted as late</span>{% endif %}</p>
+    </div>
   </div>
 </div>
 
-<div style="display:grid; grid-template-columns: minmax(0, 2fr) minmax(260px, 1fr); gap:16px" class="split">
+<div class="grid-2">
   <div>
     <div class="card">
-      <h2>Reference photos</h2>
+      <div class="card-head"><h2>Reference photos</h2><span class="hint">{{ refs|length }} photo{{ 's' if refs|length != 1 }}</span></div>
       <form method="post" action="{{ url_for('upload_photos', employee_id=person.id) }}" enctype="multipart/form-data" id="upload">
-        <label id="drop" style="display:block; border:2px dashed #cbd5e1; border-radius:10px; padding:22px; text-align:center; cursor:pointer; background:#f9fafb">
+        <label id="drop" class="dropzone">
           <input type="file" name="photos" id="photos" accept="image/*" multiple required hidden>
-          <div style="font-size:1.6em">📷</div>
+          <div class="ico">{{ icon('upload') }}</div>
           <strong>Drop photos here or click to choose</strong>
-          <div class="hint">5–10 clear photos: looking straight, slightly left and right, with and without glasses.
+          <div class="hint" style="margin-top:4px">5–10 clear photos: looking straight, slightly left and right, with and without glasses.
             Frames from the door camera work best.</div>
         </label>
-        <div id="preview" class="tiles" style="grid-template-columns: repeat(auto-fill, minmax(90px, 1fr)); margin:12px 0 0"></div>
-        <div id="upload-bar" hidden style="margin-top:10px"><button class="primary" id="upload-btn">Upload</button>
-          <button type="button" onclick="clearFiles()">Cancel</button></div>
+        <div id="preview" class="photo-grid" style="grid-template-columns: repeat(auto-fill, minmax(90px, 1fr)); margin-top:12px"></div>
+        <div id="upload-bar" class="row" hidden style="margin-top:12px"><button class="primary" id="upload-btn">{{ icon('upload') }}<span>Upload</span></button>
+          <button type="button" class="ghost" onclick="clearFiles()">Cancel</button></div>
       </form>
     </div>
 
     {% if refs %}
-    <div class="tiles" style="grid-template-columns: repeat(auto-fill, minmax(140px, 1fr))">
+    <div class="photo-grid">
       {% for r in refs %}
-      <div class="card" style="margin:0; padding:0; overflow:hidden">
-        {% if r.image %}<img src="{{ url_for('media', path=r.image) }}" alt="" style="width:100%; aspect-ratio:1; object-fit:cover; display:block">
-        {% else %}<div class="empty-state" style="aspect-ratio:1">No image</div>{% endif %}
-        <div style="padding:8px; display:flex; justify-content:space-between; align-items:center; gap:6px">
-          <span class="small muted">{{ {'upload': 'Uploaded', 'enroll': 'From folder', 'admin': 'Confirmed'}.get(r.source.split(':')[0], r.source) }}</span>
-          <form method="post" action="{{ url_for('delete_photo', employee_id=person.id) }}" onsubmit="return confirm('Delete this photo?')">
+      <div class="photo">
+        {% if r.image %}<img src="{{ url_for('media', path=r.image) }}" alt="" loading="lazy">
+        {% else %}<div class="empty-state" style="height:100%">No image</div>{% endif %}
+        <div class="meta">
+          <span>{{ {'upload': 'Uploaded', 'enroll': 'From folder', 'admin': 'Confirmed'}.get(r.source.split(':')[0], r.source) }}</span>
+          <form method="post" action="{{ url_for('delete_photo', employee_id=person.id) }}" data-confirm="Delete this photo?">
             <input type="hidden" name="{{ 'image' if r.image else 'ref_id' }}" value="{{ r.image or r.id }}">
-            <button class="danger btn-sm" title="Delete photo">Delete</button>
+            <button title="Delete photo">Delete</button>
           </form>
         </div>
       </div>
@@ -53,43 +58,43 @@
   <div>
     <div class="card">
       <h2>Details</h2>
-      <form method="post" action="{{ url_for('update_employee', employee_id=person.id) }}" style="display:grid; gap:12px">
+      <form method="post" action="{{ url_for('update_employee', employee_id=person.id) }}" class="stack" style="margin:0">
         <label class="field">Full name<input name="name" value="{{ person.name }}" required></label>
         <label class="field">Google Chat user ID (for @mentions)<input name="chat_user" value="{{ person.chat_user }}" placeholder="e.g. 112233445566778899000" autocomplete="off">
           <span class="hint">The number at the end of the person's page address in Google Admin (Directory → Users).</span></label>
-        <label class="check"><input type="checkbox" name="active" {{ 'checked' if person.active }}> Tracked by the camera</label>
-        <span class="hint">Untick for people who left or are away for a long time; their data is kept.</span>
-        <label class="check"><input type="checkbox" name="exempt" {{ 'checked' if person.exempt }}> Never count as late or absent</label>
-        <span class="hint">For the boss, part-timers or guests: the camera still records when they arrive, but they are
-          left out of late alerts, the late message and the reports.</span>
+        <label class="switch"><input type="checkbox" name="active" {{ 'checked' if person.active }}><span>Tracked by the camera
+          <span class="hint">Untick for people who left or are away for a long time; their data is kept.</span></span></label>
+        <label class="switch"><input type="checkbox" name="exempt" {{ 'checked' if person.exempt }}><span>Never count as late or absent
+          <span class="hint">For the boss, part-timers or guests: the camera still records when they arrive, but they are
+            left out of late alerts, the late message and the reports.</span></span></label>
         <div class="btn-group"><button class="primary">Save</button>
-          {% if person.chat_user %}<button formaction="{{ url_for('test_mention', employee_id=person.id) }}">Send test mention</button>{% endif %}</div>
+          {% if person.chat_user %}<button formaction="{{ url_for('test_mention', employee_id=person.id) }}">{{ icon('send') }}Send test mention</button>{% endif %}</div>
       </form>
     </div>
 
     <div class="card">
       <h2>Upcoming leave</h2>
+      <div class="list">
       {% for l in leaves %}
-        <div style="display:flex; justify-content:space-between; gap:8px; padding:4px 0">
-          <span>{{ l.start.strftime('%d %b') }}{% if l.end != l.start %} – {{ l.end.strftime('%d %b') }}{% endif %}</span>
+        <div><span class="tnum">{{ l.start.strftime('%d %b') }}{% if l.end != l.start %} – {{ l.end.strftime('%d %b') }}{% endif %}</span>
           <span class="badge info">{{ leave_label(l.kind) }}</span></div>
       {% else %}<p class="muted" style="margin:0">None.</p>{% endfor %}
-      <p class="hint" style="margin-bottom:0">From the HR system.</p>
+      </div>
+      <p class="hint" style="margin:8px 0 0">From the HR system.</p>
     </div>
 
-    <details class="panel">
-      <summary style="color: var(--bad)">Delete this employee</summary>
+    <details class="panel danger-zone">
+      <summary>Delete this person</summary>
       <div>
         <p class="small">Deletes {{ person.name }}, their photos and face data. Past attendance records are kept.</p>
-        <form method="post" action="{{ url_for('delete_employee', employee_id=person.id) }}" style="display:grid; gap:8px">
+        <form method="post" action="{{ url_for('delete_employee', employee_id=person.id) }}" class="stack" style="margin:0; gap:8px">
           <label class="field">Type <strong>{{ person.id }}</strong> to confirm<input name="confirm" required autocomplete="off"></label>
-          <div><button class="danger">Delete permanently</button></div>
+          <div><button class="danger">{{ icon('trash') }}Delete permanently</button></div>
         </form>
       </div>
     </details>
   </div>
 </div>
-<style>@media (max-width: 800px) { .split { grid-template-columns: 1fr !important; } }</style>
 {% endblock %}
 {% block scripts %}
 <script>
@@ -100,20 +105,17 @@
     for (const f of input.files) {
       const img = document.createElement('img');
       img.src = URL.createObjectURL(f);
-      img.style.cssText = 'width:100%; aspect-ratio:1; object-fit:cover; border-radius:8px';
+      img.style.cssText = 'width:100%; aspect-ratio:1; object-fit:cover; border-radius:10px; border:1px solid var(--line)';
       img.title = f.name;
       preview.appendChild(img);
     }
     bar.hidden = input.files.length === 0;
-    document.getElementById('upload-btn').textContent = `Upload ${input.files.length} photo${input.files.length === 1 ? '' : 's'}`;
+    document.querySelector('#upload-btn span').textContent = `Upload ${input.files.length} photo${input.files.length === 1 ? '' : 's'}`;
   }
   function clearFiles() { input.value = ''; showFiles(); }
   input.addEventListener('change', showFiles);
-  ['dragenter', 'dragover'].forEach(e => drop.addEventListener(e, ev => { ev.preventDefault(); drop.style.borderColor = '#2563eb'; }));
-  ['dragleave', 'drop'].forEach(e => drop.addEventListener(e, ev => { ev.preventDefault(); drop.style.borderColor = '#cbd5e1'; }));
+  ['dragenter', 'dragover'].forEach(e => drop.addEventListener(e, ev => { ev.preventDefault(); drop.classList.add('over'); }));
+  ['dragleave', 'drop'].forEach(e => drop.addEventListener(e, ev => { ev.preventDefault(); drop.classList.remove('over'); }));
   drop.addEventListener('drop', ev => { input.files = ev.dataTransfer.files; showFiles(); });
-  document.getElementById('upload').addEventListener('submit', () => {
-    const b = document.getElementById('upload-btn'); b.disabled = true; b.textContent = 'Checking faces…';
-  });
 </script>
 {% endblock %}

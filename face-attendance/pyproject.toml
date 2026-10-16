@@ -23,4 +23,4 @@ face-attendance = "attendance.__main__:main"
 packages = ["attendance"]
 
 [tool.setuptools.package-data]
-attendance = ["templates/*.html"]
+attendance = ["templates/*.html", "static/*"]

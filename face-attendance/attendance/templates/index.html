@@ -1,52 +1,58 @@
 {% extends "base.html" %}
-{% macro avatar(path, name) %}{% if path %}<a href="{{ url_for('media', path=path) }}" target="_blank"><img class="avatar" src="{{ url_for('media', path=path) }}" alt=""></a>{% else %}<span class="avatar empty">{{ name[:1] }}</span>{% endif %}{% endmacro %}
+{% set title = 'Today' if rep.day == today else rep.day.strftime('%d %b') %}
+{% macro avatar(path, name) %}{% if path %}<a class="avatar-link" href="{{ url_for('media', path=path) }}" target="_blank"><img class="avatar" src="{{ url_for('media', path=path) }}" alt=""></a>{% else %}<span class="avatar empty">{{ name[:1] }}</span>{% endif %}{% endmacro %}
 {% macro row(status, emp_id, name, a=None, note='') %}
   <tr data-status="{{ status }}" data-name="{{ name|lower }}" data-emp="{{ emp_id }}" data-display="{{ name }}"
       data-time="{{ a.time if a else '' }}" data-has="{{ 1 if a else 0 }}"
       {% if status != 'on_leave' %}class="editable" title="Click to correct"{% endif %}>
     <td>{{ avatar(a.image if a else None, name) }}</td>
-    <td><strong>{{ name }}</strong><div class="small muted">{{ emp_id }}</div></td>
+    <td><div class="cell-main">{{ name }}</div><div class="cell-sub">{{ emp_id }}</div></td>
     <td>
       {% if status == 'late' %}<span class="badge late">Late {{ late(a) }} min</span>
       {% elif status == 'on_time' %}<span class="badge ok">On time</span>
       {% elif status == 'on_leave' %}<span class="badge info">{{ note }}</span>
-      {% elif status == 'exempt' %}<span class="badge info" title="Never counted as late or absent">{{ 'Arrived' if a else 'Not here' }} · not counted</span>
+      {% elif status == 'exempt' %}<span class="badge {{ 'ok' if a else 'info' }}" title="Never counted as late or absent">{{ 'Arrived' if a else 'Not here' }} · not counted</span>
       {% elif rep.no_camera_data %}<span class="badge info">No camera data</span>
       {% else %}<span class="badge bad">Not seen</span>{% endif %}
     </td>
-    <td class="num">{{ a.time if a else '–' }}</td>
+    <td class="num tnum">{{ a.time if a else '–' }}</td>
     <td class="hide-sm small muted">{% if a %}{{ SOURCES.get(a.source, a.source) }}{% if a.score %} · {{ '%.0f'|format(a.score * 100) }}%{% endif %}{% endif %}</td>
-    <td class="num">{% if status != 'on_leave' %}<button class="btn-sm" type="button">Edit</button>{% endif %}</td>
+    <td class="num">{% if status != 'on_leave' %}<button class="btn-sm ghost" type="button">{{ icon('edit') }}Edit</button>{% endif %}</td>
   </tr>
 {% endmacro %}
 {% block body %}
 <div class="page-head">
   <div>
-    <h1>{{ 'Today' if rep.day == today else WEEKDAYS[rep.day.weekday()] }}, {{ rep.day.strftime('%d %b %Y') }}</h1>
+    <div class="eyebrow">{{ WEEKDAYS[rep.day.weekday()] }}{% if rep.day == today %} · today{% endif %}</div>
+    <h1>{{ rep.day.strftime('%d %B %Y') }}</h1>
     <p class="subtitle">On time if seen before <strong>{{ rep.window.late_after.strftime('%H:%M') }}</strong>
       · camera on {{ rep.window.start.strftime('%H:%M') }}–{{ rep.window.end.strftime('%H:%M') }}</p>
   </div>
-  <form class="btn-group" method="get">
-    <a class="btn" href="{{ url_for('index', day=prev_day.isoformat()) }}" title="Previous day">‹</a>
-    <input type="date" name="day" value="{{ rep.day.isoformat() }}" onchange="this.form.submit()">
-    <a class="btn" href="{{ url_for('index', day=next_day.isoformat()) }}" title="Next day">›</a>
-    {% if rep.day != today %}<a class="btn" href="{{ url_for('index') }}">Today</a>{% endif %}
+  <form class="actions" method="get">
+    <a class="btn btn-sm" href="{{ url_for('index', day=prev_day.isoformat()) }}" title="Previous day" aria-label="Previous day">{{ icon('chevron-left') }}</a>
+    <input type="date" name="day" value="{{ rep.day.isoformat() }}" data-autosubmit aria-label="Pick a day">
+    <a class="btn btn-sm" href="{{ url_for('index', day=next_day.isoformat()) }}" title="Next day" aria-label="Next day">{{ icon('chevron-right') }}</a>
+    {% if rep.day != today %}<a class="btn btn-sm btn-soft" href="{{ url_for('index') }}">Today</a>{% endif %}
   </form>
 </div>
 
 {% if not rep.workday %}
-  <div class="alert info">🏖 {{ rep.day_note or 'Not a work day' }}. Nobody is expected and no notifications are sent.</div>
+  <div class="alert info"><span class="ico">{{ icon('calendar-off') }}</span><span>{{ rep.day_note or 'Not a work day' }}. Nobody is expected and no notifications are sent.</span></div>
 {% elif rep.day_note %}
-  <div class="alert info">{{ rep.day_note }}</div>
+  <div class="alert info"><span class="ico">{{ icon('info') }}</span><span>{{ rep.day_note }}</span></div>
 {% endif %}
-{% if rep.no_camera_data %}<div class="alert warn">⚠️ The camera did not work at all on this day, so "not seen" does not mean absent.</div>{% endif %}
-{% if rep.outages and not rep.no_camera_data %}<div class="alert warn"><span>⚠️ Camera was down
+{% if rep.workday and rep.all_in and rep.last_arrival %}
+  <div class="alert ok"><span class="ico">{{ icon('check') }}</span><span><strong>Everyone is in</strong> · last arrival {{ rep.last_arrival.time }}.
+    {% if deadline.skipped %}No {{ rep.window.late_after.strftime('%H:%M') }} message was needed, so none was sent.{% elif rep.day == today and not deadline.sent %}If it stays this way, no {{ rep.window.late_after.strftime('%H:%M') }} message will be sent.{% endif %}</span></div>
+{% endif %}
+{% if rep.no_camera_data %}<div class="alert warn"><span class="ico">{{ icon('alert') }}</span><span>The camera did not work at all on this day, so "not seen" does not mean absent.</span></div>{% endif %}
+{% if rep.outages and not rep.no_camera_data %}<div class="alert warn"><span class="ico">{{ icon('alert') }}</span><span>Camera was down
   {% for a, b in rep.outages %}{{ a.strftime('%H:%M') }}–{{ b.strftime('%H:%M') }}{{ ', ' if not loop.last }}{% endfor %};
   people who arrived then may be missing.</span></div>{% endif %}
-{% if leave.warning %}<div class="alert warn"><span>⚠️ {{ leave.warning|replace("⚠️ ", "") }}{% if leave.message and not leave.ok %} ({{ leave.message }}){% endif %}</span></div>{% endif %}
-{% if rep.no_photos %}<div class="alert warn"><span>⚠️ Cannot be recognised (no photos):
+{% if leave.warning %}<div class="alert warn"><span class="ico">{{ icon('alert') }}</span><span>{{ leave.warning|replace("⚠️ ", "") }}{% if leave.message and not leave.ok %} ({{ leave.message }}){% endif %}</span></div>{% endif %}
+{% if rep.no_photos %}<div class="alert warn"><span class="ico">{{ icon('alert') }}</span><span>Cannot be recognised (no photos):
   {% for id, name in rep.no_photos %}<a href="{{ url_for('employee', employee_id=id) }}">{{ name }}</a>{{ ', ' if not loop.last }}{% endfor %}</span></div>{% endif %}
-{% if rep.day == today and rep.workday and not started %}<div class="alert info">The camera starts at {{ rep.window.start.strftime('%H:%M') }}.</div>{% endif %}
+{% if rep.day == today and rep.workday and not started %}<div class="alert info"><span class="ico">{{ icon('clock') }}</span><span>The camera starts at {{ rep.window.start.strftime('%H:%M') }}.</span></div>{% endif %}
 
 <div class="tiles">
   <button class="tile active" type="button" data-filter="all"><div class="n">{{ rep.total + rep.on_leave|length + rep.exempt|length }}</div><div class="l">Everyone</div></button>
@@ -57,22 +63,22 @@
   {% if rep.pending_unknowns %}<a class="tile bad" href="{{ url_for('unknowns') }}"><div class="n">{{ rep.pending_unknowns }}</div><div class="l">Faces to review →</div></a>{% endif %}
 </div>
 
-<div class="form-row" style="margin-bottom:10px; justify-content: space-between">
-  <input type="search" id="search" placeholder="Search by name or id…" style="flex: 0 1 320px">
+<div class="row between" style="margin-bottom:12px">
+  <div class="search" style="flex: 0 1 340px"><input type="search" id="search" placeholder="Search by name or id…" aria-label="Search"></div>
   {% if leave.enabled %}
-  <form method="post" action="{{ url_for('leave_sync') }}" class="btn-group small muted">
+  <form method="post" action="{{ url_for('leave_sync') }}" class="row small muted">
     <input type="hidden" name="back" value="{{ request.full_path }}">
-    Leave &amp; holidays from HR{% if leave.last_success %}, updated {{ leave.last_success.strftime('%H:%M') }}{% endif %}
-    <button class="btn-sm">↻ Refresh</button>
+    <span>Leave &amp; holidays from HR{% if leave.last_success %}, updated {{ leave.last_success.strftime('%H:%M') }}{% endif %}</span>
+    <button class="btn-sm">{{ icon('refresh') }}Refresh</button>
   </form>
   {% else %}
-  <span class="small muted">Leave and holidays are not connected (Settings → HR system).</span>
+  <span class="small muted">Leave and holidays are not connected (<a href="{{ url_for('settings_page') }}#hr">Settings → HR system</a>).</span>
   {% endif %}
 </div>
 
 <div class="table-wrap">
   <table id="people">
-    <thead><tr><th style="width:60px"></th><th>Employee</th><th>Status</th><th class="num">Arrived</th><th class="hide-sm">Source</th><th></th></tr></thead>
+    <thead><tr><th style="width:60px"></th><th>Person</th><th>Status</th><th class="num">Arrived</th><th class="hide-sm">Source</th><th></th></tr></thead>
     <tbody>
       {% for a in rep.late %}{{ row('late', a.employee_id, a.name, a) }}{% endfor %}
       {% for id, name in rep.not_seen %}{{ row('not_seen', id, name) }}{% endfor %}
@@ -81,22 +87,25 @@
       {% for id, name, a in rep.exempt %}{{ row('exempt', id, name, a) }}{% endfor %}
     </tbody>
   </table>
-  <div class="empty-state" id="empty" hidden>Nobody matches.</div>
+  {% if not (rep.late or rep.not_seen or rep.on_leave or rep.on_time or rep.exempt) %}
+    <div class="empty-state"><span class="ico">{{ icon('employees') }}</span><span>No people yet. <a href="{{ url_for('employees') }}">Add them</a>, or let the camera collect faces.</span></div>
+  {% endif %}
+  <div class="empty-state" id="empty" hidden><span class="ico">{{ icon('search') }}</span>Nobody matches.</div>
 </div>
 
 {% if late_msg.enabled and rep.workday %}
 <div class="card" style="margin-top:16px">
-  <div class="form-row" style="justify-content:space-between; align-items:center">
-    <h2 style="margin:0">💬 Late message for Google Chat</h2>
+  <div class="card-head">
+    <h2 class="row" style="gap:8px">{{ icon('chat') }} Late message for Google Chat</h2>
     <form method="post" action="{{ url_for('send_late_message', day=rep.day.isoformat()) }}"
-          {% if late_msg.sent %}onsubmit="return confirm('The message was already sent. Send it again?')"{% endif %}>
-      <button class="{{ 'primary' if not late_msg.sent }}" {{ 'disabled' if not late_msg.preview }}>{{ 'Send again' if late_msg.sent else 'Send now' }}</button>
+          {% if late_msg.sent %}data-confirm="The message was already sent. Send it again?"{% endif %}>
+      <button class="{{ 'primary' if not late_msg.sent }}" {{ 'disabled' if not late_msg.preview }}>{{ icon('send') }}{{ 'Send again' if late_msg.sent else 'Send now' }}</button>
     </form>
   </div>
   {% if late_msg.preview %}
-    <p style="background:var(--soft); border:1px solid var(--line); border-radius:12px; padding:12px; margin:12px 0 6px">{{ late_msg.preview }}</p>
+    <p class="preview-box">{{ late_msg.preview }}</p>
   {% else %}
-    <p class="muted" style="margin:12px 0 6px">Nobody was late{{ ' so far' if rep.day == today }} 🎉</p>
+    <p class="muted">Nobody was late{{ ' so far' if rep.day == today }} 🎉</p>
   {% endif %}
   <p class="hint" style="margin:0">
     {% if late_msg.sent %}Sent at {{ late_msg.sent.strftime('%H:%M') }}.
@@ -104,26 +113,25 @@
     {% elif late_msg.auto %}Sent automatically at {{ late_msg.send_at }}. Fix wrong arrivals above before then.
     {% else %}Sent only when you click the button.{% endif %}
     {% if rep.day != today %}<br>A message about another day starts with its date.{% endif %}
-
     {% if late_msg.missing_chat %}<br>⚠️ No Google Chat ID for {{ late_msg.missing_chat|join(', ') }}: shown as plain text, without a notification.{% endif %}
   </p>
 </div>
 {% endif %}
 
 <dialog id="edit">
-  <div class="dialog-head"><strong id="edit-title">Edit</strong><button type="button" class="close btn-sm" onclick="edit.close()">✕</button></div>
+  <div class="dialog-head"><strong id="edit-title">Edit</strong><button type="button" class="close" data-close aria-label="Close">{{ icon('close') }}</button></div>
   <div class="dialog-body">
     <div id="sightings-box">
       <strong>Seen by the camera</strong>
       <div id="sightings" class="sightings"></div>
       <span class="hint">The arrival is the earliest sighting that is not removed. If one of them was someone else,
-        fix that sighting: the arrival is recomputed from the others.</span>
+        fix that sighting: the arrival is recomputed from the others, and the face is learned for the right person.</span>
     </div>
     <form method="post" id="form-set">
       <strong id="set-label">Arrival time</strong>
       <div class="form-row"><input name="time" id="edit-time" class="time24" inputmode="numeric" maxlength="5" placeholder="HH:MM"
         pattern="([01]\d|2[0-3]):[0-5]\d" autocomplete="off" required><button class="primary">Save</button></div>
-      <span class="hint">Use this if the camera missed the person or got the time wrong.</span>
+      <span class="hint">Use this if the camera missed the person or got the time wrong. 24-hour clock, e.g. 0845.</span>
     </form>
     <form method="post" id="form-move">
       <strong>Recorded the wrong person?</strong>
@@ -136,16 +144,16 @@
       </div>
       <span class="hint">Moves the sighting the arrival came from (time and photo) to the right person.</span>
     </form>
-    <form method="post" id="form-delete" onsubmit="return confirm('Delete this arrival? If the person really comes later, the camera records them again.')">
-      <div class="form-row"><button class="danger">Delete this arrival</button></div>
+    <form method="post" id="form-delete" data-confirm="Delete this arrival? If the person really comes later, the camera records them again.">
+      <div class="form-row"><button class="danger">{{ icon('trash') }}Delete this arrival</button></div>
     </form>
   </div>
 </dialog>
 <template id="sighting-tpl">
   <div class="sighting">
     <a class="photo" target="_blank"><img class="avatar" alt=""></a>
-    <div class="info"><strong class="time"></strong><div class="small muted meta"></div></div>
-    <form method="post" class="move btn-group">
+    <div class="info"><strong class="time tnum"></strong><div class="small muted meta"></div></div>
+    <form method="post" class="move">
       <select name="to" required><option value="">It was…</option>
         {% for id, name in employees.items() %}<option value="{{ id }}">{{ name }}</option>{% endfor %}</select>
       <button class="btn-sm">Move</button>
@@ -222,7 +230,7 @@
                  (!q || tr.dataset.name.includes(q) || tr.dataset.emp.toLowerCase().includes(q));
       tr.hidden = !ok; if (ok) shown++;
     });
-    document.getElementById('empty').hidden = shown > 0;
+    document.getElementById('empty').hidden = shown > 0 || !document.querySelector('#people tbody tr');
   }
   function setFilter(value) {
     filter = value;

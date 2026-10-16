@@ -1,37 +1,38 @@
 {% extends "base.html" %}
+{% set title = 'Camera' %}
 {% block body %}
 <div class="page-head">
   <div>
     <h1>Live camera</h1>
     <p class="subtitle">Camera on {{ cfg.schedule.window_start }}–{{ cfg.schedule.window_end }} on work days. Use this page to position the camera.</p>
   </div>
-  <form method="post" action="{{ url_for('preview') }}" class="btn-group">
-    <button name="action" value="start" class="primary" id="start" hidden>▶ Turn camera on for 15 minutes</button>
-    <button name="action" value="stop" id="stop" hidden>■ Stop preview</button>
+  <form method="post" action="{{ url_for('preview') }}" class="actions">
+    <button name="action" value="start" class="primary" id="start" hidden>{{ icon('play') }}Turn camera on for 15 minutes</button>
+    <button name="action" value="stop" id="stop" hidden>{{ icon('stop') }}Stop preview</button>
   </form>
 </div>
 
 <div class="alert error" id="problem" hidden></div>
 
-<div style="display:grid; grid-template-columns: minmax(0, 3fr) minmax(240px, 1fr); gap:16px" class="split">
+<div class="grid-3-1">
   <div>
-    <div class="card" style="padding:8px; min-height:240px; display:flex; align-items:center; justify-content:center; background:#0f172a">
-      <div id="stage" style="position:relative; line-height:0; touch-action:none">
-        <img id="frame" alt="" style="max-width:100%; border-radius:6px; display:none; user-select:none" draggable="false">
-        <div id="sel" hidden style="position:absolute; border:2px dashed #fbbf24; background:rgba(251,191,36,.12); pointer-events:none"></div>
+    <div class="stage-wrap">
+      <div id="stage" class="stage">
+        <img id="frame" alt="" style="display:none" draggable="false">
+        <div id="sel" class="sel" hidden></div>
       </div>
-      <div id="no-frame" style="color:#94a3b8; text-align:center">No picture.<br><span class="small" id="no-frame-why"></span></div>
+      <div id="no-frame" class="no-frame"><span class="ico">{{ icon('live') }}</span><strong>No picture</strong><span class="small" id="no-frame-why"></span></div>
     </div>
-    <div class="card">
-      <form method="post" action="{{ url_for('set_area') }}" class="form-row" style="justify-content:space-between">
-        <div>
-          <strong>Detection area</strong>
-          <div class="hint" id="area-text">{% if cfg.camera.area %}Only the outlined part of the picture is analysed ({{ cfg.camera.area }}).{% else %}The whole picture is analysed.{% endif %}
+    <div class="card" style="margin-top:16px">
+      <form method="post" action="{{ url_for('set_area') }}" class="row between" style="align-items:flex-start">
+        <div style="flex:1 1 320px">
+          <div class="row" style="gap:8px"><span style="color:var(--brand)">{{ icon('area') }}</span><strong>Detection area</strong></div>
+          <div class="hint" id="area-text" style="margin-top:4px">{% if cfg.camera.area %}Only the outlined part of the picture is analysed ({{ cfg.camera.area }}).{% else %}The whole picture is analysed.{% endif %}
             Choose just the walkway: faces get bigger for the detector and people sitting elsewhere are ignored.</div>
         </div>
         <input type="hidden" name="area" id="area" value="{{ cfg.camera.area }}">
         <div class="btn-group">
-          <button type="button" id="pick">✎ Select area</button>
+          <button type="button" id="pick">{{ icon('edit') }}Select area</button>
           <button class="primary" id="save-area" hidden>Save area</button>
           {% if cfg.camera.area %}<button onclick="document.getElementById('area').value=''">Use whole picture</button>{% endif %}
         </div>
@@ -39,25 +40,24 @@
     </div>
   </div>
   <div>
-    <div class="card" style="display:grid; gap:12px">
-      <div><div class="hint">Camera</div><span class="badge info" id="camera">…</span></div>
-      <div><div class="hint">Frames analysed per second</div><strong id="fps">–</strong></div>
-      <div><div class="hint">Faces in view</div><div id="faces" class="muted">–</div></div>
-      <div id="people-box" style="display:none"><div class="hint">People followed</div><strong id="people">–</strong></div>
-      <div><div class="hint">Last recognised</div><div id="last" class="muted">–</div></div>
-      <div><div class="hint">Camera angle (learned)</div><div id="pose" class="muted small">–</div></div>
+    <div class="card kv">
+      <div><span class="k">Camera</span><span class="v"><span class="badge info" id="camera">…</span></span></div>
+      <div><span class="k">Frames analysed per second</span><span class="v tnum" id="fps">–</span></div>
+      <div><span class="k">Faces in view</span><span class="v" id="faces" style="font-weight:500">–</span></div>
+      <div id="people-box" hidden><span class="k">People followed</span><span class="v" id="people">–</span></div>
+      <div><span class="k">Last recognised</span><span class="v" id="last" style="font-weight:500">–</span></div>
+      <div><span class="k">Camera angle (learned)</span><span class="v small" id="pose" style="font-weight:500">–</span></div>
     </div>
     <div class="card small">
-      <div style="display:grid; gap:6px">
-        <div><span class="badge ok">green</span> recognised</div>
-        <div><span class="badge late">orange</span> face not usable (reason shown): move or light the camera</div>
-        <div><span class="badge bad">red</span> no matching employee</div>
+      <div class="stack" style="gap:8px; margin:0">
+        <div class="row"><span class="badge ok">green</span> recognised</div>
+        <div class="row"><span class="badge late">orange</span> face not usable (reason shown): move or light the camera</div>
+        <div class="row"><span class="badge bad">red</span> no matching employee</div>
       </div>
-      <p class="hint" style="margin-bottom:0">Faces should be at least 80 px wide, seen from the front, with light on them.</p>
+      <p class="hint" style="margin:10px 0 0">Faces should be at least 80 px wide, seen from the front, with light on them.</p>
     </div>
   </div>
 </div>
-<style>@media (max-width: 800px) { .split { grid-template-columns: 1fr !important; } }</style>
 {% endblock %}
 {% block scripts %}
 <script>
@@ -70,7 +70,7 @@
       cam.className = 'badge ' + (s.camera === 'ok' ? 'ok' : s.camera.startsWith('problem') || s.camera.startsWith('no picture') ? 'bad' : 'info');
       document.getElementById('fps').textContent = s.fps;
       document.getElementById('faces').textContent = s.faces.length ? s.faces.join(' · ') : '–';
-      document.getElementById('people-box').style.display = s.people === null ? 'none' : '';
+      document.getElementById('people-box').hidden = s.people === null;
       document.getElementById('people').textContent = s.people === null ? '–' : s.people;
       document.getElementById('last').textContent = s.last_identified || '–';
       document.getElementById('pose').textContent = s.pose || '–';

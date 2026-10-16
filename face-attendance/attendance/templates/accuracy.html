@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% set title = 'Accuracy' %}
 {% macro pct(n, total) %}{% if total %}{{ '%.1f'|format(100 * n / total) }}%{% else %}–{% endif %}{% endmacro %}
 {% block body %}
 <div class="page-head">
@@ -8,26 +9,26 @@
   </div>
 </div>
 
-<div class="card form-row" style="justify-content: space-between">
-  <div class="btn-group">
+<div class="card pad-sm row between">
+  <div class="seg" style="margin:0">
     {% for label, a, b in ranges %}
-      <a class="btn btn-sm{{ ' btn-primary' if a == acc.start and b == acc.end }}" href="{{ url_for('accuracy', start=a.isoformat(), end=b.isoformat()) }}">{{ label }}</a>
+      <a class="{{ 'on' if a == acc.start and b == acc.end }}" href="{{ url_for('accuracy', start=a.isoformat(), end=b.isoformat()) }}">{{ label }}</a>
     {% endfor %}
   </div>
-  <form class="btn-group" method="get">
-    <input type="date" name="start" value="{{ acc.start.isoformat() }}"> to <input type="date" name="end" value="{{ acc.end.isoformat() }}">
+  <form class="row" method="get">
+    <input type="date" name="start" value="{{ acc.start.isoformat() }}" aria-label="From"> <span class="muted">to</span> <input type="date" name="end" value="{{ acc.end.isoformat() }}" aria-label="To">
     <button>Show</button>
   </form>
 </div>
 
 <div class="tiles">
-  <div class="tile"><div class="n">{{ acc.identified }}</div><div class="l">Identifications by the camera</div></div>
+  <div class="tile brand"><div class="n">{{ acc.identified }}</div><div class="l">Identifications by the camera</div></div>
   <div class="tile bad"><div class="n">{{ pct(acc.wrong, acc.identified) }}</div><div class="l">Wrong person ({{ acc.wrong }})</div></div>
   <div class="tile late"><div class="n">{{ pct(acc.missed, acc.arrivals) }}</div><div class="l">Arrivals not recognised ({{ acc.missed }}/{{ acc.arrivals }})</div></div>
   <div class="tile info"><div class="n">{{ acc.unknown_faces }}</div><div class="l">Faces sent for review</div></div>
 </div>
 
-<p class="hint">
+<p class="hint" style="margin-bottom:18px">
   <b>Wrong person</b>: identifications an admin moved to someone else or removed ("Not them").
   <b>Not recognised</b>: arrivals that had to be typed in or came only from naming a face on the review page.
   These numbers are only as good as the corrections: check the Today page every day while you start.
@@ -35,15 +36,15 @@
 </p>
 
 {% if acc.people %}
-<div class="card">
-  <h2>People who need attention</h2>
-  <div class="table-wrap">
+<div class="card flush">
+  <div class="card-head" style="padding:16px 20px 0"><h2>People who need attention</h2></div>
+  <div class="table-wrap" style="border:0; border-radius:0; box-shadow:none">
     <table>
-      <thead><tr><th>Employee</th><th class="num">Photos</th><th class="num">Not recognised</th><th class="num">Taken for someone else</th><th class="num">Others taken for them</th><th>Suggestion</th></tr></thead>
+      <thead><tr><th>Person</th><th class="num">Photos</th><th class="num">Not recognised</th><th class="num">Taken for someone else</th><th class="num">Others taken for them</th><th>Suggestion</th></tr></thead>
       <tbody>
       {% for p in acc.people %}
         <tr>
-          <td><a href="{{ url_for('employee', employee_id=p.employee_id) }}"><strong>{{ p.name }}</strong></a><div class="small muted">{{ p.employee_id }}</div></td>
+          <td><a href="{{ url_for('employee', employee_id=p.employee_id) }}"><strong>{{ p.name }}</strong></a><div class="cell-sub">{{ p.employee_id }}</div></td>
           <td class="num">{{ p.photos }}</td>
           <td class="num">{{ p.missed or '–' }}</td>
           <td class="num">{{ p.taken_as_other or '–' }}</td>
@@ -58,9 +59,9 @@
 {% endif %}
 
 {% if acc.confusions %}
-<div class="card">
-  <h2>Mix-ups</h2>
-  <div class="table-wrap">
+<div class="card flush">
+  <div class="card-head" style="padding:16px 20px 0"><h2>Mix-ups</h2></div>
+  <div class="table-wrap" style="border:0; border-radius:0; box-shadow:none">
     <table>
       <thead><tr><th>The camera said</th><th>It really was</th><th class="num">Times</th></tr></thead>
       <tbody>
@@ -73,20 +74,20 @@
 </div>
 {% endif %}
 
-<div class="card">
-  <h2>Day by day</h2>
+<div class="card flush">
+  <div class="card-head" style="padding:16px 20px 0"><h2>Day by day</h2></div>
   {% if acc.days %}
-  <div class="table-wrap">
+  <div class="table-wrap" style="border:0; border-radius:0; box-shadow:none">
     <table>
       <thead><tr><th>Day</th><th class="num">Identified</th><th class="num">Wrong</th><th class="num">Arrivals</th><th class="num">Not recognised</th><th class="num">Faces to review</th></tr></thead>
       <tbody>
       {% for d in acc.days|reverse %}
         <tr>
-          <td><a href="{{ url_for('index', day=d.day.isoformat()) }}">{{ WEEKDAYS[d.day.weekday()] }} {{ d.day.strftime('%d %b') }}</a></td>
+          <td class="nowrap"><a href="{{ url_for('index', day=d.day.isoformat()) }}">{{ WEEKDAYS[d.day.weekday()] }} {{ d.day.strftime('%d %b') }}</a></td>
           <td class="num">{{ d.identified }}</td>
-          <td class="num">{% if d.wrong %}<span class="badge bad">{{ d.wrong }} · {{ pct(d.wrong, d.identified) }}</span>{% else %}0{% endif %}</td>
+          <td class="num">{% if d.wrong %}<span class="badge bad">{{ d.wrong }} · {{ pct(d.wrong, d.identified) }}</span>{% else %}<span class="muted">0</span>{% endif %}</td>
           <td class="num">{{ d.arrivals }}</td>
-          <td class="num">{% if d.missed %}<span class="badge late">{{ d.missed }} · {{ pct(d.missed, d.arrivals) }}</span>{% else %}0{% endif %}</td>
+          <td class="num">{% if d.missed %}<span class="badge late">{{ d.missed }} · {{ pct(d.missed, d.arrivals) }}</span>{% else %}<span class="muted">0</span>{% endif %}</td>
           <td class="num">{{ d.unknown_faces }}</td>
         </tr>
       {% endfor %}
@@ -94,7 +95,7 @@
     </table>
   </div>
   {% else %}
-  <p class="muted">No camera data in this period yet.</p>
+  <div class="empty-state"><span class="ico">{{ icon('accuracy') }}</span>No camera data in this period yet.</div>
   {% endif %}
 </div>
 {% endblock %}
