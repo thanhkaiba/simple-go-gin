@@ -1,1 +1,14 @@
-./.idea
+data/
+faces/
+eval/
+config.yaml
+employees.csv
+__pycache__/
+.venv/
+*.pyc
+models/
+build/
+*.egg-info/
+dist/
+.pytest_cache/
+.idea/

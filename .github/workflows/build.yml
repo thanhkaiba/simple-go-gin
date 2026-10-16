@@ -22,7 +22,6 @@ jobs:
     defaults:
       run:
         shell: bash
-        working-directory: face-attendance
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -86,10 +85,10 @@ jobs:
         with:
           name: ${{ matrix.platform }}
           path: |
-            face-attendance/dist/*.zip
-            face-attendance/dist/*.tar.gz
-            face-attendance/dist/*.exe
-            face-attendance/dist/*.dmg
+            dist/*.zip
+            dist/*.tar.gz
+            dist/*.exe
+            dist/*.dmg
           if-no-files-found: error
 
   release:

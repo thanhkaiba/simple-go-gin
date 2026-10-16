@@ -14,6 +14,7 @@ a = Analysis(
     pathex=[str(root)],
     binaries=collect_dynamic_libs("onnxruntime"),
     datas=[(str(root / "attendance" / "templates"), "attendance/templates"),
+           (str(root / "attendance" / "static"), "attendance/static"),
            (str(root / "config.example.yaml"), "."),
            (str(root / "employees.example.csv"), ".")]
           + collect_data_files("certifi")
