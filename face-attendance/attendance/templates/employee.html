@@ -8,7 +8,8 @@
       {% if not person.active %}<span class="badge info">Not tracked</span>
       {% elif refs|length == 0 %}<span class="badge bad">Cannot be recognised yet</span>
       {% elif refs|length < 5 %}<span class="badge late">{{ refs|length }} photos · add more</span>
-      {% else %}<span class="badge ok">Ready · {{ refs|length }} photos</span>{% endif %}</p>
+      {% else %}<span class="badge ok">Ready · {{ refs|length }} photos</span>{% endif %}
+      {% if person.exempt %}<span class="badge info">Never counted as late</span>{% endif %}</p>
   </div>
 </div>
 
@@ -58,6 +59,9 @@
           <span class="hint">The number at the end of the person's page address in Google Admin (Directory → Users).</span></label>
         <label class="check"><input type="checkbox" name="active" {{ 'checked' if person.active }}> Tracked by the camera</label>
         <span class="hint">Untick for people who left or are away for a long time; their data is kept.</span>
+        <label class="check"><input type="checkbox" name="exempt" {{ 'checked' if person.exempt }}> Never count as late or absent</label>
+        <span class="hint">For the boss, part-timers or guests: the camera still records when they arrive, but they are
+          left out of late alerts, the late message and the reports.</span>
         <div class="btn-group"><button class="primary">Save</button>
           {% if person.chat_user %}<button formaction="{{ url_for('test_mention', employee_id=person.id) }}">Send test mention</button>{% endif %}</div>
       </form>

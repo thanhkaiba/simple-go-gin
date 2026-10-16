@@ -2,7 +2,7 @@
 {% block body %}
 <div class="page-head">
   <div>
-    <h1>Employees</h1>
+    <h1>People</h1>
     <p class="subtitle">{{ people|selectattr('active')|list|length }} active · each person needs 5–10 photos to be recognised reliably</p>
   </div>
   <div class="btn-group">
@@ -54,6 +54,7 @@
         <td class="hide-sm">{% if p.chat_user %}<span class="badge ok">@ mention</span>{% else %}<span class="small muted">no ID</span>{% endif %}</td>
         <td>{% if not p.active %}<span class="badge info">Not tracked</span>
             {% elif on_leave.get(p.id) %}<span class="badge info">{{ leave_label(on_leave[p.id]) }} today</span>
+            {% elif p.exempt %}<span class="badge info">Not counted as late</span>
             {% else %}<span class="badge ok">Active</span>{% endif %}</td>
         <td class="num"><a class="btn btn-sm" href="{{ url_for('employee', employee_id=p.id) }}">Open</a></td>
       </tr>

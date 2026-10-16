@@ -303,12 +303,12 @@ def create_app(core: "App") -> Flask:
         store.employee(employee_id) or abort(404)
         try:
             store.update_employee(employee_id, request.form.get("name", ""), request.form.get("active") == "on",
-                                  request.form.get("chat_user"))
+                                  request.form.get("chat_user"), request.form.get("exempt") == "on")
         except ValueError as exc:
             return failed(str(exc), "employee", employee_id=employee_id)
         library.reload()
         store.log(service.now(), user(), "edit employee", f"{employee_id} {request.form.get('name')} "
-                  f"active={request.form.get('active') == 'on'}")
+                  f"active={request.form.get('active') == 'on'} exempt={request.form.get('exempt') == 'on'}")
         return done("Saved.", "employee", employee_id=employee_id)
 
     @app.post("/employees/<employee_id>/test-mention")
@@ -488,6 +488,13 @@ def create_app(core: "App") -> Flask:
                        in_window=service.in_window(service.now()),
                        frame_age=round(time.time() - frame_time, 1) if frame_time else None)
 
+    @app.post("/camera/check")
+    def camera_check():
+        """Test a camera address typed on a page, before it is saved."""
+        from .camera_check import check
+
+        return jsonify(check(request.form.get("url", "")))
+
     @app.post("/live/area")
     def set_area():
         area = request.form.get("area", "").strip()
@@ -560,11 +567,17 @@ def create_app(core: "App") -> Flask:
     # first-run setup ------------------------------------------------------------------
 
     SETUP_FIELDS = {"camera.url": ("camera", "url"), "web.password": ("web", "password"),
-                    "web.public_url": ("web", "public_url"), "google_chat.webhook_url": ("google_chat", "webhook_url")}
+                    "web.public_url": ("web", "public_url"), "google_chat.webhook_url": ("google_chat", "webhook_url"),
+                    "schedule.window_start": ("schedule", "window_start"),
+                    "schedule.late_after": ("schedule", "late_after"), "schedule.window_end": ("schedule", "window_end")}
 
     @app.get("/setup")
     def setup_page():
-        return render_template("setup.html", steps=first_setup.steps(core), cfg=cfg,
+        step = request.args.get("step") or first_setup.wizard_step(core)
+        if step not in first_setup.WIZARD:
+            abort(404)
+        return render_template("setup.html", steps=first_setup.steps(core), cfg=cfg, step=step,
+                               wizard=first_setup.WIZARD, hours_done=store.get(first_setup.HOURS_KEY) == "1",
                                suggested_url=first_setup.lan_address(cfg.web.port))
 
     @app.post("/setup/save")
@@ -574,12 +587,16 @@ def create_app(core: "App") -> Flask:
             value = request.form.get(key)
             if value and value.strip():  # empty fields are left as they are
                 changes.setdefault(section, {})[name] = value.strip()
+        if "schedule.days_shown" in request.form:  # the working hours step (no box ticked = no work days)
+            changes.setdefault("schedule", {})["work_days"] = [int(d) for d in request.form.getlist("schedule.work_days")]
         if not changes:
             return failed("Nothing to save.", "setup_page")
         try:
             settings.save(cfg, store, changes)
         except ValueError as exc:
             return failed(f"Not saved: {exc}", "setup_page")
+        if "schedule" in changes:
+            store.put(first_setup.HOURS_KEY, "1")
         store.log(service.now(), user(), "change settings",
                   ", ".join(f"{s}.{n}" for s, f in changes.items() for n in f))
         return done("Saved.", "setup_page")
@@ -588,10 +605,13 @@ def create_app(core: "App") -> Flask:
     def setup_action(action: str):
         if action == "skip-employees":
             store.put(first_setup.SKIP_EMPLOYEES_KEY, "1")
-            return done("The camera will collect faces; name them on the To review page.", "setup_page")
+            return done("The camera will collect faces; name them on the Review page.", "setup_page")
+        if action == "skip-chat":
+            store.put(first_setup.SKIP_CHAT_KEY, "1")
+            return redirect(url_for("setup_page", step="done"))
         if action == "later":
             store.put(first_setup.DISMISSED_KEY, "1")
-            return done("You can finish the setup any time from the Setup page.", "index")
+            return done("You can finish the setup any time from Settings.", "index")
         if action == "check-camera":
             live.start_preview()
             return redirect(url_for("live_page"))

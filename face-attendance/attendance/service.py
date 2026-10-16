@@ -6,6 +6,8 @@ Rules for a work day (times from config.schedule):
 - At late_after: one alert listing everyone not seen yet.
 - At window_end (e.g. 11:00): daily summary.
 - People on leave are never counted as late or missing; holidays send nothing.
+- Exempt people (e.g. the boss) have their arrival recorded but are never counted as late or missing.
+- A camera that stops working during the camera hours is reported, and so is its recovery.
 - Faces the system could not identify are reported to the admin with a link to review them.
 """
 from __future__ import annotations
@@ -29,6 +31,8 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 GAP = dt.timedelta(seconds=60)  # no frames for longer than this counts as an outage
+CAMERA_ALERT_AFTER = dt.timedelta(minutes=2)  # a camera down this long during the camera hours is reported
+CAMERA_ALERT_KEY = "camera_alert"  # set while a "camera not working" alert is out, so it is sent once
 ALIVE_SAVE_EVERY = dt.timedelta(seconds=10)
 FLUSH_EVERY = dt.timedelta(seconds=30)
 # An unknown face that resembles someone already checked in today is most likely that person
@@ -72,6 +76,8 @@ class DayReport:
     late: list[Arrival] = field(default_factory=list)
     not_seen: list[tuple[str, str]] = field(default_factory=list)  # (id, name)
     on_leave: list[tuple[str, str, str]] = field(default_factory=list)  # (id, name, kind label)
+    # People not counted as late or absent (e.g. the boss): (id, name, arrival if seen)
+    exempt: list[tuple[str, str, Arrival | None]] = field(default_factory=list)
     no_photos: list[tuple[str, str]] = field(default_factory=list)
     pending_unknowns: int = 0
     outages: list[tuple[dt.datetime, dt.datetime]] = field(default_factory=list)
@@ -128,6 +134,7 @@ class AttendanceService:
         self._last_unknown_notice: dt.datetime | None = None
         self._last_flush: dt.datetime | None = None
         self._camera_seen_day: dt.date | None = None
+        self._bad_since: dt.datetime | None = None  # when the camera stopped working, in this run
 
     @property
     def model_id(self) -> str:
@@ -406,7 +413,8 @@ class AttendanceService:
 
     def _announce(self, employee_id: str, ts: dt.datetime, suffix: str) -> None:
         day = ts.date()
-        if not self.is_workday(day) or employee_id in self.store.leaves_on(day):
+        if (not self.is_workday(day) or employee_id in self.store.leaves_on(day)
+                or employee_id in self.store.exempt_ids()):
             return
         w = self.window(day)
         when = f"{ts:%H:%M}" if day == self.now().date() else f"{ts:%H:%M} on {day:%Y-%m-%d}"
@@ -428,8 +436,13 @@ class AttendanceService:
         checkins = self.store.checkins(day)
         leave = self.store.leaves_on(day)
         enrolled = self.gallery.counts()
+        exempt = self.store.exempt_ids()
         for emp_id, name in employees.items():
             c = checkins.get(emp_id)
+            if emp_id in exempt:
+                arrival = Arrival(emp_id, name, self._local(c.first_seen), c.source, c.image, c.score) if c else None
+                rep.exempt.append((emp_id, name, arrival))
+                continue
             if c is not None:
                 a = Arrival(emp_id, name, self._local(c.first_seen), c.source, c.image, c.score)
                 (rep.late if a.ts >= w.late_after else rep.on_time).append(a)
@@ -548,13 +561,14 @@ class AttendanceService:
 
     # scheduler -----------------------------------------------------------------
 
-    def tick(self, camera_ok: bool = True) -> None:
-        """Call about once a second from the main loop."""
+    def tick(self, camera_ok: bool = True, camera_state: str = "") -> None:
+        """Call about once a second from the main loop. `camera_state` says what is wrong when the
+        camera is not ok, for the alert."""
         now = self.now()
         day = now.date()
         if self.is_workday(day):
             w = self.window(day)
-            self._track_health(now, w, camera_ok)
+            self._track_health(now, w, camera_ok, camera_state)
 
             if now >= w.late_after and not self.store.notice_sent(day, "deadline"):
                 if now < w.end:  # after window_end the summary covers it
@@ -615,7 +629,7 @@ class AttendanceService:
             return w.start
         return self._local(last)
 
-    def _track_health(self, now: dt.datetime, w: Window, camera_ok: bool) -> None:
+    def _track_health(self, now: dt.datetime, w: Window, camera_ok: bool, camera_state: str = "") -> None:
         day = now.date()
         if now < w.start:
             return
@@ -626,6 +640,9 @@ class AttendanceService:
                 if w.end - ref > GAP:
                     self.store.add_outage(day, ref, w.end)
                 self._set_alive(w.end, force=True)
+            self._bad_since = None
+            if self.store.get(CAMERA_ALERT_KEY):
+                self.store.put(CAMERA_ALERT_KEY, "")
             return
         if camera_ok:
             if now - ref > GAP:
@@ -634,6 +651,18 @@ class AttendanceService:
             if self._camera_seen_day != day:  # remember that the camera worked on this day
                 self.store.mark_notice(day, "camera_ok", now)
                 self._camera_seen_day = day
+            self._bad_since = None
+            if self.store.get(CAMERA_ALERT_KEY):
+                self._send(f"✅ The camera is working again ({now:%H:%M}).", day)
+                self.store.put(CAMERA_ALERT_KEY, "")
+            return
+        # Wait a while in this run of the program too, so a restart or a short hiccup is not reported.
+        self._bad_since = self._bad_since or now
+        if now - self._bad_since >= CAMERA_ALERT_AFTER and not self.store.get(CAMERA_ALERT_KEY):
+            reason = f" ({camera_state})" if camera_state else ""
+            self._send(f"⚠️ *The camera is not working* since {ref:%H:%M}{reason}. Arrivals are not being recorded. "
+                       f"Check the camera's power and network, and its address in Settings: {self._link('/live')}", day)
+            self.store.put(CAMERA_ALERT_KEY, now.isoformat())
 
     def _set_alive(self, ts: dt.datetime, force: bool = False) -> None:
         self._last_alive = ts

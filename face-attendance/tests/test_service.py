@@ -133,3 +133,45 @@ def test_messages_use_one_thread_per_day(env):
     url, payload = payloads[0]
     assert payload["thread"] == {"threadKey": "attendance-2026-10-14"}
     assert url.endswith("&messageReplyOption=REPLY_MESSAGE_FALLBACK_TO_NEW_THREAD")
+
+
+def test_camera_down_in_camera_hours_is_reported_once_and_recovery_too(env):
+    service, store, clock, sent = env
+    run_until(service, clock, at(8, 30))
+    clock.t, step = at(8, 30), dt.timedelta(seconds=10)
+    for _ in range(6):  # one minute down: not reported yet
+        clock.t += step
+        service.tick(False, "no picture (reconnecting)")
+    assert not [m for m in sent if "camera is not working" in m]
+    for _ in range(30):
+        clock.t += step
+        service.tick(False, "no picture (reconnecting)")
+    down = [m for m in sent if "camera is not working" in m]
+    assert len(down) == 1 and "since 08:30" in down[0] and "no picture (reconnecting)" in down[0]
+    run_until(service, clock, at(9, 0))
+    assert len([m for m in sent if "working again" in m]) == 1
+    run_until(service, clock, at(9, 30))
+    assert len([m for m in sent if "camera is not working" in m]) == 1
+
+
+def test_camera_alert_waits_after_a_restart(env):
+    service, store, clock, sent = env
+    run_until(service, clock, at(8, 30))
+    clock.t = at(9, 0)  # the program was restarted: half an hour without news, camera still connecting
+    service._bad_since = None
+    service.tick(False, "connecting")
+    assert not [m for m in sent if "camera is not working" in m]
+
+
+def test_exempt_people_are_recorded_but_never_late_or_missing(env):
+    service, store, clock, sent = env
+    store.update_employee("C", "Carol", True, exempt=True)
+    run_until(service, clock, at(10, 30))
+    service.on_identified("C", at(10, 20), 0.8, None)  # the boss comes in at 10:20
+    rep = service.report(DAY)
+    assert [(i, a.time) for i, _, a in rep.exempt] == [("C", "10:20")]
+    assert "C" not in [a.employee_id for a in rep.late] and "C" not in [i for i, _ in rep.not_seen]
+    assert rep.total == 2
+    assert not any("Carol" in m for m in sent)
+    assert "Carol" not in (service.late_text(DAY) or "")
+    assert "C" not in [p.employee_id for p in service.period_report(DAY, DAY).people]

@@ -21,7 +21,8 @@ CREATE TABLE IF NOT EXISTS employees (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
     active INTEGER NOT NULL DEFAULT 1,
-    chat_user TEXT NOT NULL DEFAULT ''  -- Google Chat user ID, used to @mention the person
+    chat_user TEXT NOT NULL DEFAULT '',  -- Google Chat user ID, used to @mention the person
+    exempt INTEGER NOT NULL DEFAULT 0  -- arrivals are recorded but never counted as late or absent (e.g. the boss)
 );
 CREATE TABLE IF NOT EXISTS embeddings (
     id INTEGER PRIMARY KEY,
@@ -125,6 +126,7 @@ class Employee:
     name: str
     active: bool
     chat_user: str = ""
+    exempt: bool = False  # not counted as late or absent
 
 
 @dataclass
@@ -219,7 +221,8 @@ class Store:
     def _migrate(self) -> None:
         """Add columns introduced after a database was created."""
         added = {"embeddings": [("image", "TEXT")], "unknowns": [("group_id", "INTEGER"), ("ignored_day", "TEXT")],
-                 "employees": [("chat_user", "TEXT NOT NULL DEFAULT ''")], "sightings": [("camera_id", "TEXT")]}
+                 "employees": [("chat_user", "TEXT NOT NULL DEFAULT ''"), ("exempt", "INTEGER NOT NULL DEFAULT 0")],
+                 "sightings": [("camera_id", "TEXT")]}
         for table, columns in added.items():
             have = {r["name"] for r in self._db.execute(f"PRAGMA table_info({table})")}
             for name, kind in columns:
@@ -276,13 +279,20 @@ class Store:
             raise ValueError(f"employee id {employee_id} already exists")
         self._exec("INSERT INTO employees (id, name, active) VALUES (?, ?, 1)", (employee_id, name))
 
-    def update_employee(self, employee_id: str, name: str, active: bool, chat_user: str | None = None) -> None:
+    def update_employee(self, employee_id: str, name: str, active: bool, chat_user: str | None = None,
+                        exempt: bool | None = None) -> None:
         if not name.strip():
             raise ValueError("name is required")
         chat_user = normalize_chat_user(chat_user) if chat_user is not None else None  # validate before writing
         self._exec("UPDATE employees SET name = ?, active = ? WHERE id = ?", (name.strip(), int(active), employee_id))
         if chat_user is not None:
             self._exec("UPDATE employees SET chat_user = ? WHERE id = ?", (chat_user, employee_id))
+        if exempt is not None:
+            self._exec("UPDATE employees SET exempt = ? WHERE id = ?", (int(exempt), employee_id))
+
+    def exempt_ids(self) -> set[str]:
+        """Employees whose arrivals are not counted as late or absent."""
+        return {r["id"] for r in self._all("SELECT id FROM employees WHERE exempt = 1")}
 
     def delete_employee(self, employee_id: str) -> list[str]:
         """Remove the employee and their face data; returns reference image paths to delete.
@@ -300,7 +310,7 @@ class Store:
 
     @staticmethod
     def _employee(r) -> Employee:
-        return Employee(r["id"], r["name"], bool(r["active"]), r["chat_user"] or "")
+        return Employee(r["id"], r["name"], bool(r["active"]), r["chat_user"] or "", bool(r["exempt"]))
 
     def all_employees(self) -> list[Employee]:
         return [self._employee(r) for r in self._all("SELECT * FROM employees ORDER BY active DESC, name")]

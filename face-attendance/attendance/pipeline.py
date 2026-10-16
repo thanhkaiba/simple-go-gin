@@ -251,7 +251,7 @@ def run(cfg: Config) -> None:
             live.fps, fps_count, fps_since = fps_count / (time.time() - fps_since), 0, time.time()
         if time.time() - last_tick >= 1.0:
             last_tick = time.time()
-            service.tick(camera_ok)
+            service.tick(camera_ok, live.camera_state)
         if cfg.healthcheck_url and time.time() - last_ping >= 60:
             last_ping = time.time()
             threading.Thread(target=_healthcheck, args=(cfg.healthcheck_url,), daemon=True).start()

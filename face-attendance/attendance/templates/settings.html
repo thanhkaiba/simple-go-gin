@@ -6,6 +6,13 @@
     {% if help %}<span class="hint">{{ help }}</span>{% endif %}
   </label>
 {% endmacro %}
+{% macro time24(section, name, label, help='', required=true) %}
+  <label class="field">{{ label }}
+    <input name="{{ section }}.{{ name }}" value="{{ s[section][name] }}" class="time24" inputmode="numeric" maxlength="5"
+           placeholder="HH:MM" pattern="([01]\d|2[0-3]):[0-5]\d" autocomplete="off" {{ 'required' if required }}>
+    {% if help %}<span class="hint">{{ help }}</span>{% endif %}
+  </label>
+{% endmacro %}
 {% macro check(section, name, label) %}
   <label class="check"><input type="checkbox" name="{{ section }}.{{ name }}" {{ 'checked' if s[section][name] }}> {{ label }}</label>
 {% endmacro %}
@@ -14,160 +21,207 @@
   <div><h1>Settings</h1><p class="subtitle">Changes apply as soon as you save; no restart needed.</p></div>
 </div>
 
-<div style="display:grid; grid-template-columns: 200px minmax(0, 1fr); gap:20px; align-items:start" class="split">
-  <nav class="card" style="position:sticky; top:72px; padding:8px; display:grid; gap:2px" id="toc">
-    <a class="btn" style="border:0" href="#hours">Working hours</a>
-    <a class="btn" style="border:0" href="#chat">Google Chat</a>
-    <a class="btn" style="border:0" href="#late">Late message</a>
-    <a class="btn" style="border:0" href="#hr">HR system</a>
-    <a class="btn" style="border:0" href="#camera">Camera</a>
-    <a class="btn" style="border:0" href="#admin">Access &amp; privacy</a>
-    <a class="btn" style="border:0" href="#recognition">Recognition</a>
-  </nav>
+{% if setup_open %}
+<a class="card setup-banner" href="{{ url_for('setup_page') }}">
+  <span class="setup-ring">{{ setup_open }}</span>
+  <span><strong>Finish setting up</strong><br><span class="hint">{{ setup_open }} step{{ 's' if setup_open > 1 }} left, about a minute each</span></span>
+  <span class="btn primary" style="margin-left:auto">Continue →</span>
+</a>
+{% endif %}
 
-  <form method="post" action="{{ url_for('save_settings') }}" id="settings">
-    <input type="hidden" name="back" value="{{ url_for('settings_page') }}">
+<nav class="seg" id="tabs">
+  <button type="button" data-tab="hours">Working hours</button>
+  <button type="button" data-tab="notify">Notifications</button>
+  <button type="button" data-tab="camera">Camera</button>
+  <button type="button" data-tab="admin">Access</button>
+  <button type="button" data-tab="hr">HR system</button>
+  <button type="button" data-tab="recognition">Recognition</button>
+</nav>
 
-    <div class="card" id="hours">
-      <h2>Working hours</h2>
-      <div class="form-row">
-        {{ field('schedule', 'window_start', 'Camera starts', type='time') }}
-        {{ field('schedule', 'late_after', 'Late from', 'Seen at or after this = late', type='time') }}
-        {{ field('schedule', 'window_end', 'Camera stops & daily summary', type='time') }}
-      </div>
-      <p style="margin-bottom:4px">Work days</p>
-      <div class="btn-group">
-        {% for d in range(7) %}<label class="check btn btn-sm"><input type="checkbox" name="schedule.work_days" value="{{ d }}" {{ 'checked' if d in s.schedule.work_days }}> {{ WEEKDAYS[d] }}</label>{% endfor %}
-      </div>
-      <p class="hint">Holidays, make-up work days and leave come from the HR system.
-        People who arrive before the camera starts are only counted if they pass it again later.</p>
+<form method="post" action="{{ url_for('save_settings') }}" id="settings">
+  <input type="hidden" name="back" value="{{ url_for('settings_page') }}">
+
+  <section class="card tab" id="hours">
+    <h2>Working hours</h2>
+    <div class="timeline">
+      {{ time24('schedule', 'window_start', 'Camera starts') }}
+      <span class="arrow">→</span>
+      {{ time24('schedule', 'late_after', 'Late from', 'Seen at or after this = late') }}
+      <span class="arrow">→</span>
+      {{ time24('schedule', 'window_end', 'Camera stops', 'Daily summary is sent') }}
     </div>
+    <p class="hint" style="margin:6px 0 20px">24-hour clock: type <code>0830</code> or <code>8:30</code>; ↑ ↓ change it by 5 minutes.</p>
+    <p style="margin:0 0 8px; font-weight:500">Work days</p>
+    <div class="days">
+      {% for d in range(7) %}<label><input type="checkbox" name="schedule.work_days" value="{{ d }}" {{ 'checked' if d in s.schedule.work_days }}><span>{{ WEEKDAYS[d] }}</span></label>{% endfor %}
+    </div>
+    <p class="hint" style="margin-bottom:0">Holidays, make-up work days and leave come from the HR system.
+      People who arrive before the camera starts are only counted if they pass it again later.</p>
+  </section>
 
-    <div class="card" id="chat">
-      <h2>Google Chat</h2>
-      <div class="form-row">
-        <label class="field grow">Webhook URL<input name="google_chat.webhook_url" value="{{ s.google_chat.webhook_url }}" placeholder="https://chat.googleapis.com/v1/spaces/…">
-          <span class="hint">In the space: space name → Apps &amp; integrations → Webhooks → Add webhook</span></label>
-        <button formaction="{{ url_for('test_chat') }}">Send test message</button>
-      </div>
+  <section class="card tab" id="notify">
+    <h2>Google Chat</h2>
+    <div class="form-row">
+      <label class="field grow">Webhook URL<input name="google_chat.webhook_url" value="{{ s.google_chat.webhook_url }}" placeholder="https://chat.googleapis.com/v1/spaces/…">
+        <span class="hint">In the space: space name → Apps &amp; integrations → Webhooks → Add webhook</span></label>
+      <button formaction="{{ url_for('test_chat') }}">Send test message</button>
+    </div>
+    <div class="stack">
+      {{ check('google_chat', 'mention_people', '@mention people in late and not-seen alerts') }}
+      {{ check('google_chat', 'notify_late_arrivals', 'Post each late arrival as it happens') }}
+    </div>
+    {{ field('google_chat', 'unknown_batch_minutes', 'Group "faces to review" notices every (minutes)', type='number') }}
+
+    <hr>
+    <h2>Daily late message</h2>
+    <p class="hint" style="margin-top:0">One message a day listing who came late, e.g. "Morning, coming late today: @Jennie Luu (10:15)".
+      Mentions need each employee's Google Chat user ID (People page).</p>
+    <div class="stack">{{ check('late_message', 'enabled', 'Post the daily late message') }}</div>
+    <div class="form-row">
+      <label class="field grow">Message starts with<input name="late_message.intro" value="{{ s.late_message.intro }}"></label>
+      <label class="field grow">Each person<input name="late_message.item" value="{{ s.late_message.item }}">
+        <span class="hint">Use {mention}, {name}, {time} and {minutes} (minutes late).</span></label>
+    </div>
+    <div class="form-row" style="margin-top:14px; align-items:center">
+      {{ check('late_message', 'auto_send', 'Send automatically at') }}
+      {{ time24('late_message', 'send_at', '', required=false) }}
+      <span class="hint">Empty = when the camera stops. Must be after the late time.</span>
+    </div>
+  </section>
+
+  <section class="card tab" id="camera">
+    <h2>Camera</h2>
+    <div class="form-row">
+      <label class="field grow">Camera address (RTSP)
+        <input name="camera.url" value="{{ s.camera.url }}" placeholder="rtsp://admin:CODE@192.168.1.64:554/Streaming/Channels/101" data-camera-check="auto">
+        <span class="hint">Ezviz: rtsp://admin:&lt;6-letter code on the label&gt;@&lt;camera IP&gt;:554/Streaming/Channels/101 ·
+          check it on the <a href="{{ url_for('live_page') }}">Camera</a> page</span></label>
+      {{ field('camera', 'process_fps', 'Frames per second', 'Lower if the computer is slow', type='number', step='0.5') }}
+    </div>
+    <div class="form-row" style="margin-top:14px">
+      {{ field('camera', 'area', 'Detection area', 'Easier: draw it on the Camera page. Empty = whole picture', cls='grow') }}
+    </div>
+    <div class="stack">{{ check('camera', 'enhance_low_light', 'Brighten dark frames automatically') }}</div>
+    <hr>
+    <h2>Groups of people</h2>
+    <div class="form-row">
+      <label class="field">Follow
+        <select name="tracking.mode">
+          <option value="face" {{ 'selected' if s.tracking.mode == 'face' }}>Faces only (lighter)</option>
+          <option value="person" {{ 'selected' if s.tracking.mode == 'person' }}>Whole people (better for groups)</option>
+        </select>
+        <span class="hint">{% if not cfg.path(cfg.tracking.person_model).exists() %}<b>Model missing:</b> run
+          <code>python -m attendance download-models --person</code>{% else %}Whole people needs a faster computer.{% endif %}</span></label>
+      {{ field('tracking', 'person_conf', 'Person confidence', 'Raise if bags or chairs get followed', type='number', step='0.05') }}
+      {{ field('tracking', 'full_frame_every', 'Whole frame every N frames', 'Higher = faster', type='number') }}
+    </div>
+  </section>
+
+  <section class="card tab" id="admin">
+    <h2>Access &amp; privacy</h2>
+    <div class="form-row">
+      <label class="field grow">Address of this page (used in chat links)<input name="web.public_url" value="{{ s.web.public_url }}"></label>
+      <label class="field">New password (user: {{ cfg.web.username }})<input name="web.password" type="password" autocomplete="new-password" placeholder="leave empty to keep"></label>
+    </div>
+    <div class="form-row" style="margin-top:14px">
+      {{ field('', 'retention_days', 'Delete camera photos after (days)', 'Reference photos are kept', type='number') }}
+      <label class="field grow">Healthchecks.io ping URL (alert if this computer stops)<input name="healthcheck_url" value="{{ s['']['healthcheck_url'] }}"></label>
+    </div>
+  </section>
+
+  <section class="card tab" id="hr">
+    <h2>HR system (holidays &amp; leave)</h2>
+    <div class="form-row">
+      <label class="field grow">API address<input name="leave_api.url" value="{{ s.leave_api.url }}" placeholder="https://hr.example.com/api/attendance-calendar"></label>
+      <label class="field">API token<input name="leave_api.token" type="password" autocomplete="off"
+        placeholder="{{ 'saved · leave empty to keep' if s.leave_api.token else 'none' }}"></label>
+      {{ field('leave_api', 'refresh_minutes', 'Refresh every (min)', type='number') }}
+    </div>
+    <div class="form-row" style="margin-top:14px; justify-content:space-between; align-items:center">
+      <span class="hint">{% if leave.enabled %}Last update:
+        {% if leave.at %}{{ leave.at.strftime('%d %b %H:%M') }} · {% if leave.ok %}<span class="badge ok">OK</span>{% else %}<span class="badge bad">Failed</span>{% endif %} {{ leave.message }}{% else %}not yet{% endif %}
+        {% else %}Not connected. The expected API format is described in the README.{% endif %}</span>
+      {% if leave.enabled %}<button formaction="{{ url_for('leave_sync') }}">↻ Load now</button>{% endif %}
+    </div>
+  </section>
+
+  <section class="card tab" id="recognition">
+    <h2>Recognition</h2>
+    <p class="hint" style="margin-top:0">Model: {{ cfg.recognition.backend }} ({{ cfg.recognition.model_id() }}).
+      Tune these with <code>python -m attendance evaluate</code>; the model itself is chosen in config.yaml.</p>
+    <div class="form-row">
+      {{ field('recognition', 'accept_score', 'Match threshold', 'Higher = fewer wrong matches, more faces to review', type='number', step='0.01') }}
+      {{ field('recognition', 'votes_required', 'Frames that must agree', type='number') }}
+    </div>
+    <details style="margin-top:16px">
+      <summary class="muted" style="cursor:pointer">Advanced</summary>
       <div class="form-row" style="margin-top:12px">
-        {{ check('google_chat', 'mention_people', '@mention people in late and not-seen alerts') }}
-        {{ check('google_chat', 'notify_late_arrivals', 'Post each late arrival as it happens') }}
-        {{ field('google_chat', 'unknown_batch_minutes', 'Group "faces to review" notices every (minutes)', type='number') }}
+        {{ field('recognition', 'min_margin', 'Margin over 2nd best', type='number', step='0.01') }}
+        {{ field('recognition', 'unknown_min_frames', 'Frames before "to review"', type='number') }}
+        {{ field('recognition', 'min_face_px', 'Min face size (px)', type='number') }}
+        {{ field('recognition', 'min_det_score', 'Min detection score', type='number', step='0.01') }}
+        {{ field('recognition', 'min_sharpness', 'Min sharpness', type='number', step='1') }}
+        {{ field('recognition', 'max_yaw', 'Max head turn (°)', type='number', step='1') }}
+        {{ field('recognition', 'max_pitch', 'Max head tilt (°)', type='number', step='1') }}
       </div>
-    </div>
+      <div style="margin-top:10px">{{ check('recognition', 'auto_pose', 'Learn the camera angle (turn and tilt are measured from how this camera usually sees faces)') }}
+        <span class="hint">Now: {{ pose }}. After moving the camera:
+          <button class="btn-sm" formaction="{{ url_for('reset_pose') }}" formnovalidate>Learn again</button></span>
+      </div>
+    </details>
+  </section>
 
-    <div class="card" id="late">
-      <h2>Daily late message</h2>
-      <p class="hint" style="margin-top:0">One message a day in Google Chat listing who came late, mentioning each person,
-        e.g. "Morning, coming late today: @Jennie Luu (10:15), and @Steven Hoang (10:32)". Mentions need each employee's
-        Google Chat user ID (Employees page).</p>
-      <div style="margin-bottom:12px">{{ check('late_message', 'enabled', 'Post the daily late message') }}</div>
-      <div class="form-row">
-        <label class="field grow">Message starts with<input name="late_message.intro" value="{{ s.late_message.intro }}"></label>
-        <label class="field grow">Each person<input name="late_message.item" value="{{ s.late_message.item }}">
-          <span class="hint">You can use {mention}, {name}, {time} and {minutes} (minutes late). This message always
-            mentions people where {mention} is used, whatever the Google Chat setting above says.</span></label>
-
-      </div>
-      <div class="form-row" style="margin-top:12px">
-        {{ check('late_message', 'auto_send', 'Send automatically at') }}
-        {{ field('late_message', 'send_at', '', 'Empty = when the camera stops. Must be after the late time.', type='time') }}
-      </div>
-    </div>
-
-    <div class="card" id="hr">
-      <h2>HR system (holidays &amp; leave)</h2>
-      <div class="form-row">
-        <label class="field grow">API address<input name="leave_api.url" value="{{ s.leave_api.url }}" placeholder="https://hr.example.com/api/attendance-calendar"></label>
-        <label class="field">API token<input name="leave_api.token" type="password" autocomplete="off"
-          placeholder="{{ 'saved · leave empty to keep' if s.leave_api.token else 'none' }}"></label>
-        {{ field('leave_api', 'refresh_minutes', 'Refresh every (min)', type='number') }}
-      </div>
-      <div class="form-row" style="margin-top:12px; justify-content:space-between">
-        <span class="hint">{% if leave.enabled %}Last update:
-          {% if leave.at %}{{ leave.at.strftime('%d %b %H:%M') }} · {% if leave.ok %}<span class="badge ok">OK</span>{% else %}<span class="badge bad">Failed</span>{% endif %} {{ leave.message }}{% else %}not yet{% endif %}
-          {% else %}Not connected. The expected API format is described in the README.{% endif %}</span>
-        {% if leave.enabled %}<button formaction="{{ url_for('leave_sync') }}">↻ Load now</button>{% endif %}
-      </div>
-    </div>
-
-    <div class="card" id="camera">
-      <h2>Camera</h2>
-      <div class="form-row">
-        <label class="field grow">Camera address (RTSP)
-          <input name="camera.url" value="{{ s.camera.url }}" placeholder="rtsp://admin:CODE@192.168.1.64:554/Streaming/Channels/101">
-          <span class="hint">Ezviz: rtsp://admin:&lt;6-letter code on the camera label&gt;@&lt;camera IP&gt;:554/Streaming/Channels/101 (main stream; 102 = low-resolution sub stream; some models use /H.264) ·
-            check it on the <a href="{{ url_for('live_page') }}">Live camera</a> page</span></label>
-        {{ field('camera', 'process_fps', 'Frames per second', 'Lower if the computer is slow', type='number', step='0.5') }}
-      </div>
-      <div class="form-row" style="margin-top:12px">
-        {{ field('camera', 'area', 'Detection area', 'left,top,right,bottom as fractions; empty = whole picture. Easier: draw it on the Live camera page', cls='grow') }}
-      </div>
-      <div style="margin-top:12px">{{ check('camera', 'enhance_low_light', 'Brighten dark frames automatically') }}</div>
-      <h3 style="margin-top:20px">Groups of people</h3>
-      <div class="form-row">
-        <label class="field">Follow
-          <select name="tracking.mode">
-            <option value="face" {{ 'selected' if s.tracking.mode == 'face' }}>Faces only (lighter)</option>
-            <option value="person" {{ 'selected' if s.tracking.mode == 'person' }}>Whole people (better for groups)</option>
-          </select>
-          <span class="hint">Whole people keeps names apart when several people walk in together, and needs a faster computer.
-            {% if not cfg.path(cfg.tracking.person_model).exists() %}<br><b>Model missing:</b> run
-            <code>python -m attendance download-models --person</code>{% endif %}</span></label>
-        {{ field('tracking', 'person_conf', 'Person confidence', 'Raise if bags or chairs get followed', type='number', step='0.05') }}
-        {{ field('tracking', 'full_frame_every', 'Search the whole frame every N frames', 'Higher = faster; 1 = every frame', type='number') }}
-      </div>
-    </div>
-
-    <div class="card" id="admin">
-      <h2>Access &amp; privacy</h2>
-      <div class="form-row">
-        <label class="field grow">Address of this page (used in chat links)<input name="web.public_url" value="{{ s.web.public_url }}"></label>
-        <label class="field">New password (user: {{ cfg.web.username }})<input name="web.password" type="password" autocomplete="new-password" placeholder="leave empty to keep"></label>
-      </div>
-      <div class="form-row" style="margin-top:12px">
-        {{ field('', 'retention_days', 'Delete camera photos after (days)', 'Reference photos are kept', type='number') }}
-        <label class="field grow">Healthchecks.io ping URL (alert if this computer stops)<input name="healthcheck_url" value="{{ s['']['healthcheck_url'] }}"></label>
-      </div>
-    </div>
-
-    <div class="card" id="recognition">
-      <h2>Recognition</h2>
-      <p class="hint" style="margin-top:0">Model: {{ cfg.recognition.backend }} ({{ cfg.recognition.model_id() }}).
-        Tune these with <code>python -m attendance evaluate</code>; changing the model itself is done in config.yaml.</p>
-      <div class="form-row">
-        {{ field('recognition', 'accept_score', 'Match threshold', 'Higher = fewer wrong matches, more faces to review', type='number', step='0.01') }}
-        {{ field('recognition', 'votes_required', 'Frames that must agree', type='number') }}
-      </div>
-      <details style="margin-top:14px">
-        <summary class="muted" style="cursor:pointer">Advanced</summary>
-        <div class="form-row" style="margin-top:12px">
-          {{ field('recognition', 'min_margin', 'Margin over 2nd best', type='number', step='0.01') }}
-          {{ field('recognition', 'unknown_min_frames', 'Frames before "to review"', type='number') }}
-          {{ field('recognition', 'min_face_px', 'Min face size (px)', type='number') }}
-          {{ field('recognition', 'min_det_score', 'Min detection score', type='number', step='0.01') }}
-          {{ field('recognition', 'min_sharpness', 'Min sharpness', type='number', step='1') }}
-          {{ field('recognition', 'max_yaw', 'Max head turn (°)', type='number', step='1') }}
-          {{ field('recognition', 'max_pitch', 'Max head tilt (°)', type='number', step='1') }}
-        </div>
-        <div style="margin-top:10px">{{ check('recognition', 'auto_pose', 'Learn the camera angle (turn and tilt are measured from how this camera usually sees faces)') }}
-          <span class="hint">Now: {{ pose }}. After moving the camera:
-            <button class="btn-sm" formaction="{{ url_for('reset_pose') }}" formnovalidate>Learn again</button></span>
-        </div>
-      </details>
-    </div>
-
-    <div style="position:sticky; bottom:0; background:var(--card); border:1px solid var(--line); border-radius:var(--radius); box-shadow:0 -4px 12px rgba(16,24,40,.08); padding:12px 16px; display:flex; gap:12px; align-items:center">
-      <button class="primary" style="padding:10px 22px">Save settings</button>
-      <span class="hint" id="dirty" hidden>You have unsaved changes.</span>
-    </div>
-  </form>
-</div>
-<style>@media (max-width: 800px) { .split { grid-template-columns: 1fr !important; } #toc { display: none !important; } }</style>
+  <div class="savebar">
+    <span class="hint" id="dirty">All changes saved</span>
+    <button class="primary" style="padding:10px 22px">Save settings</button>
+  </div>
+</form>
+<style>
+  .setup-banner { display: flex; align-items: center; gap: 14px; color: var(--text); background: linear-gradient(120deg, #f1efff, #fff 60%); border-color: #dcd8fd; }
+  .setup-banner:hover { text-decoration: none; border-color: #c4bdfb; }
+  .setup-ring { width: 38px; height: 38px; border-radius: 50%; display: grid; place-items: center; font-weight: 700; color: var(--brand);
+                background: #fff; box-shadow: inset 0 0 0 3px #dcd8fd; flex: none; }
+  .tab { display: none; } .tab.shown { display: block; }
+  .tab hr { border: 0; border-top: 1px solid var(--line); margin: 24px 0 20px; }
+  .stack { display: grid; gap: 10px; margin: 16px 0; }
+  .timeline { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 10px 14px; }
+  .timeline .arrow { color: #c9c9c2; font-size: 1.3em; padding-top: 34px; }
+  .timeline input.time24 { font-size: 1.35em; font-weight: 600; width: 116px; padding: 10px 12px; }
+  .days { display: flex; flex-wrap: wrap; gap: 8px; }
+  .days label { position: relative; }
+  .days input { position: absolute; opacity: 0; pointer-events: none; }
+  .days span { display: grid; place-items: center; width: 52px; height: 40px; border-radius: 10px; border: 1px solid var(--line); cursor: pointer;
+               font-weight: 500; color: var(--muted); background: var(--card); transition: all .15s; user-select: none; }
+  .days input:checked + span { background: var(--ink); border-color: var(--ink); color: #fff; }
+  .days input:focus-visible + span { box-shadow: 0 0 0 4px var(--ring); }
+  .savebar { position: sticky; bottom: 16px; margin-top: 8px; background: rgba(255,255,255,.92); backdrop-filter: blur(12px); border: 1px solid var(--line);
+             border-radius: 14px; box-shadow: 0 8px 30px rgba(23,24,28,.08); padding: 10px 10px 10px 18px; display: flex; gap: 12px;
+             align-items: center; justify-content: space-between; }
+  .savebar.dirty { border-color: var(--ink); }
+  .savebar.dirty #dirty { color: var(--text); font-weight: 500; }
+  @media (max-width: 760px) { .savebar { bottom: 92px; } .timeline .arrow { display: none; } }
+</style>
 {% endblock %}
 {% block scripts %}
 <script>
-  document.getElementById('settings').addEventListener('input', () => document.getElementById('dirty').hidden = false);
+  // One section at a time; the address keeps the open tab (#hr etc.), so links and reloads land on it.
+  const ALIAS = {chat: 'notify', late: 'notify', access: 'admin'};
+  function showTab(name) {
+    name = ALIAS[name] || name;
+    if (!document.getElementById(name)?.classList.contains('tab')) name = 'hours';
+    document.querySelectorAll('.tab').forEach(t => t.classList.toggle('shown', t.id === name));
+    document.querySelectorAll('#tabs [data-tab]').forEach(b => b.classList.toggle('on', b.dataset.tab === name));
+    document.querySelector('#settings [name=back]').value = location.pathname + '#' + name;
+    history.replaceState(null, '', '#' + name);
+  }
+  document.querySelectorAll('#tabs [data-tab]').forEach(b => b.addEventListener('click', () => showTab(b.dataset.tab)));
+  showTab(location.hash.slice(1));
+
+  // A field with a wrong value may sit on a hidden tab: open that tab so the browser can point at it.
+  document.getElementById('settings').addEventListener('invalid', e => showTab(e.target.closest('.tab').id), true);
+  document.getElementById('settings').addEventListener('input', () => {
+    document.getElementById('dirty').textContent = 'You have unsaved changes';
+    document.querySelector('.savebar').classList.add('dirty');
+  });
 </script>
 {% endblock %}
