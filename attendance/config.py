@@ -134,7 +134,7 @@ class RecognitionConfig:
 class TrackingConfig:
     """How faces are followed between frames.
     face: follow faces only (light). person: also detect and follow whole people, which keeps
-    identities apart when several people walk in together (heavier; see README)."""
+    identities apart when several people walk in together (heavier; see docs/recognition.md)."""
     mode: str = "face"
     person_model: str = "models/yolox_tiny.onnx"  # YOLOX (Apache-2.0) or a YOLOv8 ONNX export (AGPL-3.0)
     person_conf: float = 0.5  # confidence needed to start following a person

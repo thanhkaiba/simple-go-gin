@@ -157,7 +157,7 @@
     <div class="row between" style="margin-top:14px">
       <span class="hint">{% if leave.enabled %}Last update:
         {% if leave.at %}{{ leave.at.strftime('%d %b %H:%M') }} · {% if leave.ok %}<span class="badge ok">OK</span>{% else %}<span class="badge bad">Failed</span>{% endif %} {{ leave.message }}{% else %}not yet{% endif %}
-        {% else %}Not connected. The expected API format is described in the README.{% endif %}</span>
+        {% else %}Not connected. The expected API format is described in docs/hr-api.md.{% endif %}</span>
       {% if leave.enabled %}<button formaction="{{ url_for('leave_sync') }}">{{ icon('refresh') }}Load now</button>{% endif %}
     </div>
   </section>
