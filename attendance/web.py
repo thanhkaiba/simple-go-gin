@@ -565,7 +565,10 @@ def create_app(core: "App") -> Flask:
 
     @app.get("/settings")
     def settings_page():
+        from . import latephoto
+
         return render_template("settings.html", s=settings.current(cfg), cfg=cfg, leave=leave_status(),
+                               late_background=latephoto.background_path(core.data_dir).exists(),
                                pose=core.pose.describe(), version=__version__, packaged=getattr(sys, "frozen", False),
                                update=updater.read_status(core.data_dir), backup=core.backup.status())
 
@@ -594,6 +597,39 @@ def create_app(core: "App") -> Flask:
         store.log(service.now(), user(), "change settings",
                   ", ".join(f"{s}.{n}" if s else n for s, f in changes.items() for n in f))
         return done("Settings saved and applied.", "settings_page")
+
+    @app.post("/settings/late-background")
+    def late_background():
+        """The background of the late message's picture: a picture the admin chose, or none (drawn)."""
+        from .faces import decode_image, encode_jpeg
+
+        from . import latephoto
+
+        path = latephoto.background_path(core.data_dir)
+        if request.form.get("remove"):
+            path.unlink(missing_ok=True)
+            store.log(service.now(), user(), "late message background", "removed")
+            return done("The drawn background is used again.", "settings_page")
+        upload = request.files.get("background")
+        if upload is None or not upload.filename:
+            return failed("Choose a picture.", "settings_page")
+        try:
+            image = decode_image(upload.read())
+        except ValueError as exc:
+            return failed(f"Not saved: {exc}", "settings_page")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(encode_jpeg(image))
+        store.log(service.now(), user(), "late message background", upload.filename)
+        return done("Background saved; the next picture uses it.", "settings_page")
+
+    @app.get("/settings/late-background.jpg")
+    def late_background_jpg():
+        from . import latephoto
+
+        path = latephoto.background_path(core.data_dir)
+        if not path.exists():
+            abort(404)
+        return send_from_directory(core.data_dir, path.relative_to(core.data_dir).as_posix(), max_age=0)
 
     @app.post("/settings/update-now")
     def update_now():

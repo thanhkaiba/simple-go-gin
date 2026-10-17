@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING, Callable
 
 import numpy as np
 
-from . import latephoto, leave_api
+from . import latephoto, leave_api, models
 from .config import Config, parse_clock
 from .gallery import Gallery
 from .notifier import GoogleChat
@@ -248,7 +248,7 @@ class AttendanceService:
             latephoto.remove(data_dir, day)
             return None
         try:
-            return latephoto.write(data_dir, day, items, f"Late on {day:%A %d %b %Y}")
+            return latephoto.write(data_dir, day, items, f"Late on {day:%A %d %b %Y}", models.cutout_file(self.cfg))
         except Exception:
             log.exception("Could not make the picture of the late people")
             return None

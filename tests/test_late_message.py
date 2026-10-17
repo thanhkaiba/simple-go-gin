@@ -1,4 +1,5 @@
 import datetime as dt
+import io
 
 import pytest
 
@@ -190,6 +191,7 @@ def test_chat_ids_are_normalised_and_checked(core):
 
 def test_picture_of_the_late_people(core):
     import cv2
+    import numpy as np
     from test_evidence import seen
 
     from attendance import latephoto
@@ -205,14 +207,24 @@ def test_picture_of_the_late_people(core):
     rel = app.service.late_photo(DAY)
     assert rel == f"late/{DAY}.jpg"
     picture = cv2.imread(str(app.data_dir / rel))
-    assert picture.shape[1] == 2 * latephoto.TILE_W + 3 * latephoto.GAP  # two people side by side
-    first = (app.data_dir / rel).stat().st_mtime_ns
+    assert picture.shape == (latephoto.HEIGHT, latephoto.MIN_WIDTH, 3)
+    sky = lambda p: np.abs(p[0, 1000].astype(int) - (252, 190, 120)).max() <= 6  # noqa: E731  (JPEG is not exact)
+    assert sky(picture)  # the drawn scene: no background picture was uploaded
+    key = (app.data_dir / rel).with_suffix(".key").read_text()
 
-    # Unchanged arrivals: the same file. A correction: the picture is made again.
-    assert app.service.late_photo(DAY) == rel and (app.data_dir / rel).stat().st_mtime_ns == first
+    # Unchanged arrivals: the same file. A correction, or a new background: the picture is made again.
+    assert app.service.late_photo(DAY) == rel and (app.data_dir / rel).with_suffix(".key").read_text() == key
     app.service.delete_arrival(DAY, "C")
     assert app.service.late_photo(DAY) == rel
-    assert cv2.imread(str(app.data_dir / rel)).shape[1] == latephoto.TILE_W + 2 * latephoto.GAP
+    key2 = (app.data_dir / rel).with_suffix(".key").read_text()
+    assert key2 != key
+    bg = latephoto.background_path(app.data_dir)
+    bg.parent.mkdir(exist_ok=True)
+    cv2.imwrite(str(bg), np.full((90, 160, 3), (10, 20, 30), np.uint8))
+    assert app.service.late_photo(DAY) == rel
+    assert (app.data_dir / rel).with_suffix(".key").read_text() != key2
+    picture = cv2.imread(str(app.data_dir / rel))
+    assert not sky(picture) and np.abs(picture[0, 1000].astype(int) - (10, 20, 30)).max() <= 6
 
     # A plain http address (the office network): Google Chat cannot fetch it, so the message links to it.
     assert app.service.send_late_message(DAY, user="hr")
@@ -280,3 +292,51 @@ def test_labels_are_drawn_without_accents():
     assert ascii_label("Nguyễn Văn Đức") == "Nguyen Van Duc"
     assert ascii_label("Trần Thị Hồng đào") == "Tran Thi Hong dao"
     assert ascii_label("日本") == "?"
+
+
+def test_background_picture_is_uploaded_and_removed_on_the_settings_page(core):
+    from test_web import client, png
+
+    import numpy as np
+
+    from attendance import latephoto
+
+    app, _, _ = core
+    c = client(app)
+    page = c.get("/settings").get_data(as_text=True)
+    assert "Empty = a drawn morning scene" in page and 'form="late-bg"' in page
+    assert c.get("/settings/late-background.jpg").status_code == 404
+    resp = c.post("/settings/late-background", data={"background": (io.BytesIO(b"not a picture"), "x.png")},
+                  content_type="multipart/form-data", follow_redirects=True)
+    assert "not a readable image" in resp.get_data(as_text=True)
+    picture = png(np.full((90, 160, 3), (10, 20, 30), np.uint8))
+    resp = c.post("/settings/late-background", data={"background": (io.BytesIO(picture), "office.png")},
+                  content_type="multipart/form-data", follow_redirects=True)
+    assert "Background saved" in resp.get_data(as_text=True)
+    assert latephoto.background_path(app.data_dir).exists()
+    assert c.get("/settings/late-background.jpg").mimetype == "image/jpeg"
+    assert "Your picture is used" in c.get("/settings").get_data(as_text=True)
+    resp = c.post("/settings/late-background", data={"remove": "1"}, follow_redirects=True)
+    assert "drawn background is used again" in resp.get_data(as_text=True)
+    assert not latephoto.background_path(app.data_dir).exists()
+
+
+def test_cutout_without_the_model_and_the_pieces_of_the_scene():
+    import cv2
+    import numpy as np
+
+    from attendance import latephoto
+
+    # A dark figure in the middle of a light photo: GrabCut keeps the figure, the sides go.
+    photo = np.full((360, 160, 3), 230, np.uint8)
+    cv2.rectangle(photo, (55, 40), (105, 340), (30, 40, 50), -1)
+    cv2.circle(photo, (80, 40), 25, (30, 40, 50), -1)
+    image, alpha = latephoto.cutout(photo, None)
+    assert alpha.shape == image.shape[:2] and 40 <= image.shape[1] <= 80 and image.shape[0] >= 300
+    # A missing model file falls back to GrabCut rather than failing.
+    image2, _ = latephoto.cutout(photo, latephoto.Path("/nowhere/u2netp.onnx"))
+    assert image2.shape == image.shape
+    # The background picture is cropped to fill the canvas; a missing one is drawn.
+    drawn = latephoto.load_background(None, 1280, 720)
+    assert drawn.shape == (720, 1280, 3) and drawn[700, 10].tolist() != drawn[10, 10].tolist()
+    assert latephoto.load_background(latephoto.Path("/nowhere.jpg"), 640, 360).shape == (360, 640, 3)

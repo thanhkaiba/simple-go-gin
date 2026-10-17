@@ -92,6 +92,9 @@ web:
     if (-not (Test-Models @("yolox_tiny.onnx"))) {
         Invoke-Checked $Py @("-m", "attendance", "--config", $Config, "download-models", "--person")
     }
+    if (-not (Test-Models @("u2netp.onnx"))) {
+        Invoke-Checked $Py @("-m", "attendance", "--config", $Config, "download-models", "--cutout")
+    }
     Write-Host "Models are in $Models"
 
     Step "5/6 Start now and at every login"

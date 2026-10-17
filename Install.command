@@ -68,6 +68,7 @@ if need face_detection_yunet_2023mar.onnx face_recognition_sface_2021dec.onnx; t
   "$PY" -m attendance --config config.yaml download-models --backend opencv
 fi
 if need yolox_tiny.onnx; then "$PY" -m attendance --config config.yaml download-models --person; fi
+if need u2netp.onnx; then "$PY" -m attendance --config config.yaml download-models --cutout; fi
 echo "Models are in $APP_HOME/models"
 
 step "5/6 Start now and at every login"

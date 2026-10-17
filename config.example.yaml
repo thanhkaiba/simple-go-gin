@@ -77,9 +77,12 @@ late_message:             # one message a day listing who came late
   item: "{mention} ({time})"   # {mention}, {name}, {time}, {minutes}
   auto_send: true
   send_at: ""             # empty = when the camera stops (window_end); or a time after late_after
-  photo: true             # attach one picture of the late people (whole person, name and time burned in).
+  photo: true             # attach one picture of the late people: each cut out of the camera photo, on a
+                          # cheerful background (drawn, or uploaded in Settings), with a name tag and the time.
                           # Shown in Google Chat only when web.public_url is an https address reachable
                           # from the internet (e.g. Tailscale Funnel); otherwise the message links to it.
+                          # The cutout model (models/u2netp.onnx, 4.5 MB) is downloaded on the first start;
+                          # until then the people are cut out more roughly with OpenCV alone.
 
 
 leave_api:
