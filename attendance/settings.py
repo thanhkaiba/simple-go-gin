@@ -23,7 +23,7 @@ EDITABLE: dict[str, list[str]] = {
                     "learn_corrections", "learn_per_group", "group_days", "seen_again_score"],
     "google_chat": ["webhook_url", "mention_people", "notify_late_arrivals", "unknown_batch_minutes"],
     "leave_api": ["url", "token", "refresh_minutes"],
-    "late_message": ["enabled", "intro", "item", "auto_send", "send_at"],
+    "late_message": ["enabled", "intro", "item", "auto_send", "send_at", "photo"],
     "web": ["public_url", "password"],
     "updates": ["enabled"],
     "backup": ["folder", "time", "keep_days", "include_photos"],

@@ -161,6 +161,10 @@ class LateMessageConfig:
     item: str = "{mention} ({time})"  # placeholders: {mention}, {name}, {time}, {minutes}
     auto_send: bool = True
     send_at: str = ""  # empty: when the camera stops (window_end); can also be sent from the Today page
+    # Attach one picture of the late people (the whole person as the camera saw them, name and time
+    # burned in). Google Chat shows it only when web.public_url is an https address it can reach;
+    # otherwise the message links to it.
+    photo: bool = True
 
 
 @dataclass

@@ -79,7 +79,7 @@ def create_app(core: "App") -> Flask:
 
     @app.before_request
     def guard():
-        if cfg.web.password:
+        if cfg.web.password and request.endpoint != "late_photo":  # that one is guarded by its token
             auth = request.authorization
             if not (auth and hmac.compare_digest(auth.username or "", cfg.web.username)
                     and hmac.compare_digest(auth.password or "", cfg.web.password)):
@@ -114,7 +114,9 @@ def create_app(core: "App") -> Flask:
         skipped = store.notice_time(day, "late_message_skipped")
         no_id = [a.name for a in service.late_people(day)
                  if not getattr(store.employee(a.employee_id), "chat_user", "")]
+        photo = service.late_photo_url(day)
         return {"enabled": True, "preview": service.late_text(day, preview=True),
+                "photo": photo, "photo_public": bool(photo and photo.startswith("https://")),
                 "sent": sent.astimezone(service.tz) if sent else None,
                 "skipped": skipped.astimezone(service.tz) if skipped else None,
                 "missing_chat": no_id, "send_at": lm.send_at or cfg.schedule.window_end, "auto": lm.auto_send}
@@ -693,6 +695,21 @@ def create_app(core: "App") -> Flask:
     @app.get("/audit")
     def audit():
         return render_template("audit.html", rows=store.audit(), local=lambda ts: ts.astimezone(service.tz))
+
+    @app.get("/late-photo/<day>/<token>.jpg")
+    def late_photo(day: str, token: str):
+        """The picture of the day's late people, for Google Chat: no password, the token in the
+        address (only in the message and on the Today page) stands in for it."""
+        try:
+            d = dt.date.fromisoformat(day)
+        except ValueError:
+            abort(404)
+        if not hmac.compare_digest(token, service.late_photo_token(d)):
+            abort(404)
+        rel = service.late_photo(d)
+        if rel is None:
+            abort(404)
+        return send_from_directory(core.data_dir, rel, max_age=0)
 
     @app.get("/media/<path:path>")
     def media(path: str):

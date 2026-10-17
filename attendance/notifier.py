@@ -62,11 +62,14 @@ class GoogleChat:
     def webhook_url(self) -> str:
         return (self._url() or "").strip()
 
-    def send(self, text: str, thread_key: str | None, now: dt.datetime) -> None:
+    def send(self, text: str, thread_key: str | None, now: dt.datetime, cards: list[dict] | None = None) -> None:
+        """`cards` are Google Chat cardsV2 shown under the text, e.g. a picture."""
         log.info("Google Chat: %s", text.replace("\n", " | "))
         if not self.webhook_url:
             return
-        payload = {"text": text}
+        payload: dict = {"text": text}
+        if cards:
+            payload["cardsV2"] = cards
         if thread_key:
             payload["thread"] = {"threadKey": thread_key}
         self.store.enqueue(payload, now)

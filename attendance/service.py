@@ -14,12 +14,13 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
+import secrets
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Callable
 
 import numpy as np
 
-from . import leave_api
+from . import latephoto, leave_api
 from .config import Config, parse_clock
 from .gallery import Gallery
 from .notifier import GoogleChat
@@ -226,8 +227,55 @@ class AttendanceService:
         prefix = "" if day == self.now().date() else f"{day:%A %d %b}: "
         return f"{prefix}{lm.intro} {joined}"
 
+    def late_photo(self, day: dt.date) -> str | None:
+        """One picture of the day's late people (the whole person as the camera saw them, name and
+        time burned in), made or refreshed as needed: its path under the data folder. None when
+        the picture is switched off, nobody is late, or none of the late people was on camera."""
+        if not self.cfg.late_message.photo:
+            return None
+        people = self.late_people(day)
+        if not people:
+            return None
+        data_dir, w = self.cfg.path(self.cfg.data_dir), self.window(day)
+        items = []
+        for a in people:
+            photo = None
+            if a.image:  # the whole person when it was kept, else the face
+                photo = next((data_dir / rel for rel in (body_photo(a.image), a.image) if (data_dir / rel).exists()),
+                             None)
+            items.append(latephoto.Person(a.name, a.time, minutes_late(a, w), photo))
+        if not any(p.photo for p in items):  # nobody on camera (all entered by hand): nothing to show
+            latephoto.remove(data_dir, day)
+            return None
+        try:
+            return latephoto.write(data_dir, day, items, f"Late on {day:%A %d %b %Y}")
+        except Exception:
+            log.exception("Could not make the picture of the late people")
+            return None
+
+    def _photo_secret(self) -> str:
+        secret = self.store.get("late_photo_secret")
+        if not secret:
+            secret = secrets.token_hex(32)
+            self.store.put("late_photo_secret", secret)
+        return secret
+
+    def late_photo_token(self, day: dt.date) -> str:
+        return latephoto.token(self._photo_secret(), day)
+
+    def late_photo_url(self, day: dt.date) -> str | None:
+        """Address of the day's picture, fetchable without the admin password (the token stands in
+        for it, so Google Chat can load the picture). None when there is no picture."""
+        rel = self.late_photo(day)
+        if rel is None:
+            return None
+        version = (self.cfg.path(self.cfg.data_dir) / rel).with_suffix(".key").read_text()[:8]
+        return self._link(f"/late-photo/{day.isoformat()}/{self.late_photo_token(day)}.jpg?v={version}")
+
     def send_late_message(self, day: dt.date, user: str = "system", auto: bool = False) -> bool:
-        """Post the day's late message (as its own message, not in the day's thread).
+        """Post the day's late message (as its own message, not in the day's thread), with the
+        picture of the late people when there is one: shown in the message when Google Chat can
+        fetch it (an https address), otherwise as a link.
 
         Marks "late_message" only when something was sent, and "late_message_skipped" when nobody
         was late, so the page can tell the two apart. An automatic send gives up when the message
@@ -238,7 +286,15 @@ class AttendanceService:
             return False
         if not self.store.mark_notice(day, "late_message", self.now()) and auto:
             return False
-        self.chat.send(text, None, self.now())
+        cards = None
+        url = self.late_photo_url(day)
+        if url and url.startswith("https://"):
+            cards = [{"cardId": f"late-photo-{day.isoformat()}", "card": {"sections": [{"widgets": [
+                {"image": {"imageUrl": url, "altText": "The people who came late", "onClick": {"openLink": {"url": url}}}}
+            ]}]}}]
+        elif url:
+            text += f"\n📷 <{url}|Picture of the late people>"
+        self.chat.send(text, None, self.now(), cards)
         self.store.log(self.now(), user, "send late message", ", ".join(a.name for a in self.late_people(day)))
         return True
 
@@ -667,6 +723,7 @@ class AttendanceService:
             for folder in crops.iterdir():  # folders are named by day
                 if folder.is_dir() and folder.name < cutoff.isoformat() and not any(folder.iterdir()):
                     folder.rmdir()
+        removed += latephoto.expire(data_dir, late_cutoff)
         if removed:
             log.info("Retention: deleted %d snapshots older than %s", removed, cutoff)
         return removed

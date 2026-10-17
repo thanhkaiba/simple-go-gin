@@ -108,6 +108,10 @@
   </div>
   {% if late_msg.preview %}
     <p class="preview-box">{{ late_msg.preview }}</p>
+    {% if late_msg.photo %}
+      <a href="{{ late_msg.photo }}" target="_blank" title="The picture attached to the message; opens in a new tab"><img src="{{ late_msg.photo }}" alt="Late people" class="late-photo"></a>
+      {% if not late_msg.photo_public %}<p class="hint" style="margin:4px 0 0"><span class="warn-ico">{{ icon('alert') }}</span> The message will only link to this picture: Google Chat can show it only from an https address reachable from the internet (Settings → Access).</p>{% endif %}
+    {% endif %}
   {% else %}
     <p class="muted">Nobody late{{ ' so far' if rep.day == today }} 🎉</p>
   {% endif %}

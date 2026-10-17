@@ -31,7 +31,7 @@ Times are set in Settings; defaults shown.
 | Camera down all day | Nobody counted as missing |
 | Face unsure | Goes to **Review**; confirming records the arrival and teaches the face |
 
-**Google Chat**, all in one thread per day: the not-seen list at 10:00 (skipped when everyone is already in), each late arrival, faces to review (one link, batched), a summary at 11:00, and warnings when the camera is down or two people's photos look alike. A separate **late message** ("Morning, coming late today: @A (10:15)…") goes out when the camera stops; its wording is in Settings. @mentions need each person's Google Chat user ID (People page).
+**Google Chat**, all in one thread per day: the not-seen list at 10:00 (skipped when everyone is already in), each late arrival, faces to review (one link, batched), a summary at 11:00, and warnings when the camera is down or two people's photos look alike. A separate **late message** ("Morning, coming late today: @A (10:15)…") goes out when the camera stops; its wording is in Settings. It carries one picture of the late people (the whole person as the camera saw them, name and time burned in); Google Chat shows it only when the page's address is https and reachable from the internet (see [remote access](docs/install.md#remote-access)), otherwise the message links to it. @mentions need each person's Google Chat user ID (People page).
 
 The camera only runs during the camera hours (default 08:00–11:00). Someone who arrives before 08:00 and does not pass again is counted as late, so set the start time early enough.
 

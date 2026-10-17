@@ -86,6 +86,8 @@
       {{ time24('late_message', 'send_at', '', required=false) }}
       <span class="hint">Empty = when the camera stops · must be after the late time</span>
     </div>
+    <div class="stack" style="margin-top:14px">{{ check('late_message', 'photo', 'Attach a picture of the late people (whole person as the camera saw them, name and time burned in)') }}</div>
+    <p class="hint" style="margin:4px 0 0">Google Chat shows the picture only when the address of this page (Access tab) is https and reachable from the internet, e.g. with Tailscale Funnel; otherwise the message links to it.</p>
   </section>
 
   <section class="card tab" id="camera">

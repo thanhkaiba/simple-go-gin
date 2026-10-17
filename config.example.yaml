@@ -77,6 +77,9 @@ late_message:             # one message a day listing who came late
   item: "{mention} ({time})"   # {mention}, {name}, {time}, {minutes}
   auto_send: true
   send_at: ""             # empty = when the camera stops (window_end); or a time after late_after
+  photo: true             # attach one picture of the late people (whole person, name and time burned in).
+                          # Shown in Google Chat only when web.public_url is an https address reachable
+                          # from the internet (e.g. Tailscale Funnel); otherwise the message links to it.
 
 
 leave_api:

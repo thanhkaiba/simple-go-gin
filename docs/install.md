@@ -109,6 +109,8 @@ WantedBy=multi-user.target
 
 **Remote access.** The admin page only works inside the office network. For remote access, install [Tailscale](https://tailscale.com) on this computer and the admin's devices. Never open a port to the internet.
 
+**The picture in the late message.** Google Chat fetches the picture of the late people itself, so it can only show it from an https address that is reachable from the internet; from an office address (`http://192.168…`) the message carries a link to the picture instead, which works on the office network. To have the picture shown in the message, publish the page with [Tailscale Funnel](https://tailscale.com/kb/1223/funnel) (`tailscale funnel 8000`) or a similar tunnel and set that https address as *Address of this page* in Settings → Access. Only the picture is fetched without the password: its address contains an unguessable token and is known only to the chat message and the Today page; every other page still asks for the password. The picture is kept as long as the late-arrival evidence (Settings → *late evidence days*).
+
 ## Backup and moving to another computer
 
 **Backup.** In *Settings → Access & privacy → Backup*, choose a folder on an external drive, a network share, or a folder that Google Drive / OneDrive / Dropbox keeps in the cloud. Once a day (12:00 by default, after camera hours) the program writes there:
